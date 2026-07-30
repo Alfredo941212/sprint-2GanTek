@@ -1,17 +1,34 @@
-# flutter_application_1
+# GanTek
 
-A new Flutter project.
+Aplicación móvil desarrollada en Flutter para la gestión de ganado.
 
-## Getting Started
+## Descripción
 
-This project is a starting point for a Flutter application.
+GanTek es una aplicación móvil desarrollada con Flutter para apoyar en el registro y control de información ganadera.
 
-A few resources to get you started if this is your first Flutter project:
+## Funcionalidades principales
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+- Inicio de sesión y registro de usuarios.
+- Registro de ganado.
+- Control de peso.
+- Registro de vacunas.
+- Observaciones del animal.
+- Fotografía del ganado.
+- Gestión de información por usuario.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Tecnologías utilizadas
+
+- Flutter
+- Dart
+- SQLite
+- SharedPreferences
+
+## Dependencias instaladas
+
+```bash
+flutter pub add sqflite
+flutter pub add path
+flutter pub add shared_preferences
+flutter pub add image_picker
+flutter pub add intl
+flutter pub add crypto
