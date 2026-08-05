@@ -32,3 +32,10 @@ flutter pub add shared_preferences
 flutter pub add image_picker
 flutter pub add intl
 flutter pub add crypto
+flutter pub add bcrypt
+flutter pub add google_fonts
+flutter pub add flutter_secure_storage
+flutter pub add image_picker
+flutter pub add path_provider
+flutter pub add pdf
+flutter pub add printing

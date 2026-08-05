@@ -139,18 +139,10 @@ class CattleRepository {
     );
   }
 
-  Future<int> deleteCattle(
-    int id,
-  ) async {
+  Future<int> deleteCattle(int id) async {
+    final int userId = _requireUserId();
+
     final Database database = await _databaseHelper.database;
-
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión de usuario activa.',
-      );
-    }
 
     return database.delete(
       DatabaseHelper.cattleTable,
@@ -160,6 +152,18 @@ class CattleRepository {
         userId,
       ],
     );
+  }
+
+  int _requireUserId() {
+    final int? userId = SessionManager.instance.currentUserId;
+
+    if (userId == null) {
+      throw StateError(
+        'No hay una sesión activa.',
+      );
+    }
+
+    return userId;
   }
 
   Future<List<Cattle>> getAvailableCattle() async {

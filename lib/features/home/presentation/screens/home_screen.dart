@@ -1,147 +1,557 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/session/session_manager.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/summary_card.dart';
+import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../cattle/presentation/screens/cattle_list_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
+import '../../../reports/presentation/screens/reports_screen.dart';
 import '../../../sales/presentation/screens/sales_list_screen.dart';
 import '../../../vaccines/presentation/screens/vaccine_list_screen.dart';
-import '../../../reports/presentation/screens/reports_screen.dart';
+import '../../data/models/dashboard_summary.dart';
+import '../../data/repositories/dashboard_repository.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final DashboardRepository _dashboardRepository = DashboardRepository();
+
+  DashboardSummary _summary = DashboardSummary.empty();
+
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboard();
+  }
+
+  Future<void> _loadDashboard() async {
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final DashboardSummary result = await _dashboardRepository.getSummary();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _summary = result;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _errorMessage = error.toString();
+        _isLoading = false;
+      });
+
+      debugPrint(
+        'Error cargando dashboard: $error',
+      );
+    }
+  }
 
   void _open(
     BuildContext context,
     Widget screen,
   ) {
-    Navigator.of(context).push(
+    Navigator.push(
+      context,
       MaterialPageRoute(
         builder: (_) => screen,
       ),
+    ).then((_) {
+      /*
+       * Cuando regresamos de ganado, ventas,
+       * vacunas o reportes, actualizamos el panel.
+       */
+      _loadDashboard();
+    });
+  }
+
+  Future<void> _logout() async {
+    await SessionManager.instance.clearSession();
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoginScreen(),
+      ),
+      (route) => false,
     );
   }
 
-  void _showPending(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Este módulo se desarrollará en el siguiente avance.',
-        ),
+  String get _firstName {
+    final String? fullName = SessionManager.instance.currentUser?.fullName;
+
+    if (fullName == null || fullName.trim().isEmpty) {
+      return 'Usuario';
+    }
+
+    return fullName.trim().split(' ').first;
+  }
+
+  String _formatMoney(double value) {
+    final String amount = value.toStringAsFixed(2);
+
+    final List<String> parts = amount.split('.');
+
+    final String integers = parts[0];
+    final String decimals = parts[1];
+
+    final StringBuffer result = StringBuffer();
+
+    for (int index = 0; index < integers.length; index++) {
+      final int position = integers.length - index;
+
+      result.write(integers[index]);
+
+      if (position > 1 && position % 3 == 1) {
+        result.write(',');
+      }
+    }
+
+    return '\$${result.toString()}.$decimals MXN';
+  }
+
+  Future<void> _showUserMenu() async {
+    final selected = await showMenu<String>(
+      context: context,
+      position: const RelativeRect.fromLTRB(
+        1000,
+        75,
+        12,
+        0,
       ),
+      items: [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                SessionManager.instance.currentUser?.fullName ??
+                    'Usuario GanTek',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                SessionManager.instance.currentUser?.email ?? 'Sin correo',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'profile',
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              Icons.person_outline,
+            ),
+            title: Text('Mi perfil'),
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'logout',
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(
+              Icons.logout,
+              color: AppColors.danger,
+            ),
+            title: Text(
+              'Cerrar sesión',
+              style: TextStyle(
+                color: AppColors.danger,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (selected == 'profile') {
+      _open(
+        context,
+        const ProfileScreen(),
+      );
+    }
+
+    if (selected == 'logout') {
+      await _logout();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('GanTek'),
+        title: const Text('GANTEK'),
+        leading: IconButton(
+          tooltip: 'Menú',
+          onPressed: () {},
+          icon: const Icon(Icons.menu),
+        ),
         actions: [
           IconButton(
-            tooltip: 'Perfil',
-            onPressed: () {
-              _open(
-                context,
-                const ProfileScreen(),
-              );
-            },
+            tooltip: 'Notificaciones',
+            onPressed: () {},
             icon: const Icon(
-              Icons.person_outline,
+              Icons.notifications_none,
+            ),
+          ),
+          IconButton(
+            tooltip: 'Cuenta',
+            onPressed: _showUserMenu,
+            icon: const Icon(
+              Icons.account_circle_outlined,
             ),
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Bienvenido a GanTek',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Controla el registro, estado y venta de tu ganado.',
-                  style: TextStyle(
-                    color: Colors.white70,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          const Text(
-            'Módulos principales',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _ModuleCard(
-            icon: Icons.pets,
-            title: 'Ganado registrado',
-            subtitle: 'Consulta y registra animales',
-            onTap: () {
-              _open(
-                context,
-                const CattleListScreen(),
-              );
-            },
-          ),
-          _ModuleCard(
-            icon: Icons.sell_outlined,
-            title: 'Ventas',
-            subtitle: 'Registrar y consultar ventas de ganado',
-            onTap: () {
-              _open(
-                context,
-                const SalesListScreen(),
-              );
-            },
-          ),
-          _ModuleCard(
-            icon: Icons.vaccines_outlined,
-            title: 'Vacunas',
-            subtitle: 'Registrar vacunas y consultar próximas dosis',
-            onTap: () {
-              _open(
-                context,
-                const VaccineListScreen(),
-              );
-            },
-          ),
-          _ModuleCard(
-            icon: Icons.bar_chart,
-            title: 'Reportes',
-            subtitle: 'Consulta ganado, ventas y control sanitario',
-            onTap: () {
-              _open(
-                context,
-                const ReportsScreen(),
-              );
-            },
+      body: RefreshIndicator(
+        onRefresh: _loadDashboard,
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return ListView(
+        children: const [
+          SizedBox(height: 250),
+          Center(
+            child: CircularProgressIndicator(),
           ),
         ],
+      );
+    }
+
+    if (_errorMessage != null) {
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 130),
+          const Icon(
+            Icons.error_outline,
+            size: 64,
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'No fue posible cargar el resumen.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage!,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: _loadDashboard,
+            icon: const Icon(Icons.refresh),
+            label: const Text(
+              'Intentar nuevamente',
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          '¡Hola, $_firstName! 👋',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Resumen comercial',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 18),
+        GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.48,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            SummaryCard(
+              title: 'Ganado registrado',
+              value: '${_summary.registeredCattle}',
+              icon: Icons.pets,
+            ),
+            SummaryCard(
+              title: 'Listos para venta',
+              value: '${_summary.availableCattle}',
+              icon: Icons.sell_outlined,
+              iconColor: AppColors.gold,
+            ),
+            SummaryCard(
+              title: 'Publicados',
+              value: '${_summary.publishedCattle}',
+              icon: Icons.campaign_outlined,
+              iconColor: AppColors.info,
+            ),
+            SummaryCard(
+              title: 'Ventas del mes',
+              value: '${_summary.monthlySales}',
+              icon: Icons.point_of_sale,
+              iconColor: AppColors.success,
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppColors.successSoft,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: AppColors.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.trending_up,
+                color: AppColors.success,
+                size: 36,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Ingresos del mes',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatMoney(
+                        _summary.monthlyIncome,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryDark,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Acciones rápidas',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.add_circle_outline,
+                label: 'Registrar\nganado',
+                onTap: () {
+                  _open(
+                    context,
+                    const CattleListScreen(),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.campaign_outlined,
+                label: 'Publicar',
+                onTap: () {
+                  /*
+                   * Después se conectará con
+                   * Publicar en venta.
+                   */
+                  _open(
+                    context,
+                    const SalesListScreen(),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.sell_outlined,
+                label: 'Registrar\nventa',
+                onTap: () {
+                  _open(
+                    context,
+                    const SalesListScreen(),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _QuickAction(
+                icon: Icons.bar_chart,
+                label: 'Ver\nreportes',
+                onTap: () {
+                  _open(
+                    context,
+                    const ReportsScreen(),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        _ModuleTile(
+          icon: Icons.pets,
+          title: 'Ganado',
+          subtitle: 'Consulta y administra tus animales',
+          onTap: () {
+            _open(
+              context,
+              const CattleListScreen(),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        _ModuleTile(
+          icon: Icons.point_of_sale,
+          title: 'Ventas',
+          subtitle: 'Registra y consulta tus ventas',
+          onTap: () {
+            _open(
+              context,
+              const SalesListScreen(),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        _ModuleTile(
+          icon: Icons.vaccines_outlined,
+          title: 'Vacunas',
+          subtitle: 'Control sanitario y próximas dosis',
+          onTap: () {
+            _open(
+              context,
+              const VaccineListScreen(),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        _ModuleTile(
+          icon: Icons.bar_chart,
+          title: 'Reportes',
+          subtitle: 'Consulta indicadores y genera PDF',
+          onTap: () {
+            _open(
+              context,
+              const ReportsScreen(),
+            );
+          },
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        height: 105,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: AppColors.border,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              color: AppColors.primary,
+              size: 30,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ModuleCard extends StatelessWidget {
-  const _ModuleCard({
+class _ModuleTile extends StatelessWidget {
+  const _ModuleTile({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -156,18 +566,27 @@ class _ModuleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.only(
-        bottom: 12,
-      ),
       child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
-        leading: CircleAvatar(
-          child: Icon(icon),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
+        leading: Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            icon,
+            color: AppColors.primary,
+          ),
         ),
         title: Text(
           title,
           style: const TextStyle(
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
           ),
         ),
         subtitle: Text(subtitle),

@@ -1,6 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:flutter/foundation.dart';
 
 class DatabaseHelper {
   DatabaseHelper._internal();
@@ -10,9 +10,11 @@ class DatabaseHelper {
   static Database? _database;
 
   static const String databaseName = 'gantek.db';
-  static const int databaseVersion = 5;
 
-  static const String usersTable = "users";
+  // Se aumenta para ejecutar la nueva migración.
+  static const int databaseVersion = 7;
+
+  static const String usersTable = 'users';
   static const String cattleTable = 'cattle';
   static const String salesTable = 'sales';
   static const String vaccinesTable = 'vaccine_records';
@@ -63,7 +65,13 @@ class DatabaseHelper {
     await _createVaccinesTable(database);
   }
 
-  Future<void> _createUsersTable(Database database) async {
+  // =========================================================
+  // USUARIOS
+  // =========================================================
+
+  Future<void> _createUsersTable(
+    Database database,
+  ) async {
     await database.execute('''
       CREATE TABLE $usersTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +84,10 @@ class DatabaseHelper {
       )
     ''');
   }
+
+  // =========================================================
+  // GANADO
+  // =========================================================
 
   Future<void> _createCattleTable(
     Database database,
@@ -93,13 +105,19 @@ class DatabaseHelper {
         lot TEXT NOT NULL DEFAULT '',
         corral TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
+
         FOREIGN KEY (user_id)
           REFERENCES $usersTable(id)
           ON DELETE CASCADE,
+
         UNIQUE(user_id, code)
       )
     ''');
   }
+
+  // =========================================================
+  // VENTAS
+  // =========================================================
 
   Future<void> _createSalesTable(
     Database database,
@@ -107,6 +125,7 @@ class DatabaseHelper {
     await database.execute('''
       CREATE TABLE $salesTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
         cattle_id INTEGER NOT NULL,
         cattle_code TEXT NOT NULL,
         buyer_name TEXT NOT NULL,
@@ -119,10 +138,21 @@ class DatabaseHelper {
         observations TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'completada',
         created_at TEXT NOT NULL,
-        FOREIGN KEY (cattle_id) REFERENCES $cattleTable(id)
+
+        FOREIGN KEY (user_id)
+          REFERENCES $usersTable(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (cattle_id)
+          REFERENCES $cattleTable(id)
+          ON DELETE RESTRICT
       )
     ''');
   }
+
+  // =========================================================
+  // VACUNAS
+  // =========================================================
 
   Future<void> _createVaccinesTable(
     Database database,
@@ -130,6 +160,7 @@ class DatabaseHelper {
     await database.execute('''
       CREATE TABLE $vaccinesTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
         cattle_id INTEGER NOT NULL,
         cattle_code TEXT NOT NULL,
         vaccine_name TEXT NOT NULL,
@@ -139,6 +170,11 @@ class DatabaseHelper {
         responsible TEXT NOT NULL DEFAULT '',
         observations TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
+
+        FOREIGN KEY (user_id)
+          REFERENCES $usersTable(id)
+          ON DELETE CASCADE,
+
         FOREIGN KEY (cattle_id)
           REFERENCES $cattleTable(id)
           ON DELETE CASCADE
@@ -146,35 +182,142 @@ class DatabaseHelper {
     ''');
   }
 
+  // =========================================================
+  // MIGRACIONES
+  // =========================================================
+
   Future<void> _upgradeDatabase(
     Database database,
     int oldVersion,
     int newVersion,
   ) async {
-    if (oldVersion < 2) {
+    /*
+     * En lugar de confiar únicamente en oldVersion,
+     * verificamos si las tablas y columnas existen.
+     *
+     * Esto evita errores cuando una versión anterior
+     * quedó instalada con una estructura incompleta.
+     */
+
+    if (!await _tableExists(
+      database,
+      usersTable,
+    )) {
       await _createUsersTable(database);
     }
 
-    if (oldVersion < 3) {
+    if (!await _tableExists(
+      database,
+      cattleTable,
+    )) {
+      await _createCattleTable(database);
+    }
+
+    if (!await _tableExists(
+      database,
+      salesTable,
+    )) {
       await _createSalesTable(database);
     }
-    if (oldVersion < 4) {
+
+    if (!await _tableExists(
+      database,
+      vaccinesTable,
+    )) {
       await _createVaccinesTable(database);
     }
-    if (oldVersion < 5) {
-      await database.execute(
-        'ALTER TABLE $cattleTable '
-        'ADD COLUMN user_id INTEGER',
-      );
-    }
+
+    // Agregar user_id a cattle si todavía no existe.
+    await _addColumnIfMissing(
+      database: database,
+      table: cattleTable,
+      column: 'user_id',
+      definition: 'INTEGER',
+    );
+
+    // Agregar user_id a sales si todavía no existe.
+    await _addColumnIfMissing(
+      database: database,
+      table: salesTable,
+      column: 'user_id',
+      definition: 'INTEGER',
+    );
+
+    // Agregar user_id a vacunas si todavía no existe.
+    await _addColumnIfMissing(
+      database: database,
+      table: vaccinesTable,
+      column: 'user_id',
+      definition: 'INTEGER',
+    );
   }
+
+  Future<bool> _tableExists(
+    Database database,
+    String tableName,
+  ) async {
+    final List<Map<String, dynamic>> result = await database.rawQuery(
+      '''
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name = ?
+      LIMIT 1
+      ''',
+      [tableName],
+    );
+
+    return result.isNotEmpty;
+  }
+
+  Future<bool> _columnExists({
+    required Database database,
+    required String table,
+    required String column,
+  }) async {
+    final List<Map<String, dynamic>> columns = await database.rawQuery(
+      'PRAGMA table_info($table)',
+    );
+
+    return columns.any(
+      (Map<String, dynamic> item) => item['name'] == column,
+    );
+  }
+
+  Future<void> _addColumnIfMissing({
+    required Database database,
+    required String table,
+    required String column,
+    required String definition,
+  }) async {
+    final bool exists = await _columnExists(
+      database: database,
+      table: table,
+      column: column,
+    );
+
+    if (exists) {
+      return;
+    }
+
+    await database.execute(
+      'ALTER TABLE $table '
+      'ADD COLUMN $column $definition',
+    );
+  }
+
+  // =========================================================
+  // CERRAR BASE
+  // =========================================================
 
   Future<void> closeDatabase() async {
     final Database? currentDatabase = _database;
 
-    if (currentDatabase != null) {
-      await currentDatabase.close();
-      _database = null;
+    if (currentDatabase == null) {
+      return;
     }
+
+    await currentDatabase.close();
+    _database = null;
   }
 }

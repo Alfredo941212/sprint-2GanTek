@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/session/session_manager.dart';
 import '../../../cattle/data/models/cattle.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
 import '../../data/models/sale.dart';
 import '../../data/repositories/sale_repository.dart';
 
 class RegisterSaleScreen extends StatefulWidget {
-  const RegisterSaleScreen({super.key});
+  const RegisterSaleScreen({
+    super.key,
+    this.sale,
+  });
+
+  final Sale? sale;
+
+  bool get isEditing => sale != null;
 
   @override
   State<RegisterSaleScreen> createState() => _RegisterSaleScreenState();
@@ -29,7 +37,7 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
 
   final TextEditingController _observationsController = TextEditingController();
 
-  List<Cattle> _availableCattle = [];
+  List<Cattle> _availableCattle = <Cattle>[];
   Cattle? _selectedCattle;
 
   DateTime _saleDate = DateTime.now();
@@ -40,12 +48,12 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
 
   double get _total {
     final double weight = double.tryParse(
-          _weightController.text.replaceAll(',', '.'),
+          _weightController.text.trim().replaceAll(',', '.'),
         ) ??
         0;
 
     final double price = double.tryParse(
-          _priceController.text.replaceAll(',', '.'),
+          _priceController.text.trim().replaceAll(',', '.'),
         ) ??
         0;
 
@@ -56,6 +64,18 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
   void initState() {
     super.initState();
 
+    final Sale? sale = widget.sale;
+
+    if (sale != null) {
+      _buyerController.text = sale.buyerName;
+      _phoneController.text = sale.buyerPhone;
+      _weightController.text = sale.saleWeight.toStringAsFixed(1);
+      _priceController.text = sale.pricePerKg.toStringAsFixed(2);
+      _observationsController.text = sale.observations;
+      _saleDate = sale.saleDate;
+      _paymentMethod = sale.paymentMethod;
+    }
+
     _weightController.addListener(_updateTotal);
     _priceController.addListener(_updateTotal);
 
@@ -63,14 +83,33 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
   }
 
   void _updateTotal() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) {
+      return;
     }
+
+    setState(() {});
   }
 
   Future<void> _loadAvailableCattle() async {
     try {
       final List<Cattle> cattle = await _cattleRepository.getAvailableCattle();
+
+      final Sale? sale = widget.sale;
+      Cattle? originalCattle;
+
+      if (sale != null) {
+        originalCattle = await _cattleRepository.getCattleById(
+          sale.cattleId,
+        );
+
+        final bool alreadyIncluded = cattle.any(
+          (Cattle item) => item.id == originalCattle?.id,
+        );
+
+        if (originalCattle != null && !alreadyIncluded) {
+          cattle.insert(0, originalCattle);
+        }
+      }
 
       if (!mounted) {
         return;
@@ -78,6 +117,7 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
 
       setState(() {
         _availableCattle = cattle;
+        _selectedCattle = originalCattle;
         _isLoading = false;
       });
     } catch (error) {
@@ -90,7 +130,11 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
       });
 
       _showMessage(
-        'No fue posible cargar el ganado: $error',
+        'No fue posible cargar el ganado.',
+      );
+
+      debugPrint(
+        'Error cargando ganado para venta: $error',
       );
     }
   }
@@ -123,27 +167,58 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
       return;
     }
 
-    if (_selectedCattle == null || _selectedCattle!.id == null) {
-      _showMessage('Selecciona el animal vendido.');
+    final int? userId = SessionManager.instance.currentUserId;
+
+    if (userId == null) {
+      _showMessage(
+        'No hay una sesión activa.',
+      );
       return;
     }
 
-    final double weight = double.parse(
-      _weightController.text.replaceAll(',', '.'),
+    final Cattle? selectedCattle = _selectedCattle;
+
+    if (selectedCattle == null || selectedCattle.id == null) {
+      _showMessage(
+        'Selecciona el animal vendido.',
+      );
+      return;
+    }
+
+    final double? weight = double.tryParse(
+      _weightController.text.trim().replaceAll(',', '.'),
     );
 
-    final double price = double.parse(
-      _priceController.text.replaceAll(',', '.'),
+    final double? price = double.tryParse(
+      _priceController.text.trim().replaceAll(',', '.'),
     );
+
+    if (weight == null || weight <= 0) {
+      _showMessage(
+        'Ingresa un peso de venta válido.',
+      );
+      return;
+    }
+
+    if (price == null || price <= 0) {
+      _showMessage(
+        'Ingresa un precio válido.',
+      );
+      return;
+    }
 
     setState(() {
       _isSaving = true;
     });
 
     try {
+      final Sale? originalSale = widget.sale;
+
       final Sale sale = Sale(
-        cattleId: _selectedCattle!.id!,
-        cattleCode: _selectedCattle!.code,
+        id: widget.sale?.id,
+        userId: userId,
+        cattleId: selectedCattle.id!,
+        cattleCode: selectedCattle.code,
         buyerName: _buyerController.text.trim(),
         buyerPhone: _phoneController.text.trim(),
         saleDate: _saleDate,
@@ -152,11 +227,25 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
         total: weight * price,
         paymentMethod: _paymentMethod,
         observations: _observationsController.text.trim(),
-        status: 'completada',
-        createdAt: DateTime.now(),
+        status: originalSale?.status ?? 'completada',
+        createdAt: originalSale?.createdAt ?? DateTime.now(),
       );
 
-      await _saleRepository.insertSale(sale);
+      if (widget.isEditing) {
+        final int updatedRows = await _saleRepository.updateSale(
+          sale,
+        );
+
+        if (updatedRows == 0) {
+          throw StateError(
+            'La venta no existe o pertenece a otro usuario.',
+          );
+        }
+      } else {
+        await _saleRepository.insertSale(
+          sale,
+        );
+      }
 
       if (!mounted) {
         return;
@@ -165,7 +254,13 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
       Navigator.pop(context, true);
     } catch (error) {
       _showMessage(
-        'No se pudo guardar la venta: $error',
+        widget.isEditing
+            ? 'No se pudo actualizar la venta.'
+            : 'No se pudo guardar la venta.',
+      );
+
+      debugPrint(
+        'Error guardando venta: $error',
       );
     } finally {
       if (mounted) {
@@ -177,13 +272,29 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+        ),
+      );
   }
 
   @override
   void dispose() {
+    _weightController.removeListener(
+      _updateTotal,
+    );
+
+    _priceController.removeListener(
+      _updateTotal,
+    );
+
     _buyerController.dispose();
     _phoneController.dispose();
     _weightController.dispose();
@@ -197,7 +308,9 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Registrar venta'),
+        title: Text(
+          widget.isEditing ? 'Actualizar venta' : 'Registrar venta',
+        ),
       ),
       body: _isLoading
           ? const Center(
@@ -208,49 +321,86 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(18),
                 children: [
-                  DropdownButtonFormField<Cattle>(
-                    initialValue: _selectedCattle,
-                    decoration: const InputDecoration(
-                      labelText: 'Animal vendido',
-                      prefixIcon: Icon(Icons.agriculture),
-                    ),
-                    items: _availableCattle.map((cattle) {
-                      return DropdownMenuItem<Cattle>(
-                        value: cattle,
-                        child: Text(
-                          'Arete ${cattle.code} - '
-                          '${cattle.initialWeight.toStringAsFixed(1)} kg',
+                  if (_availableCattle.isEmpty && !widget.isEditing)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(18),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 46,
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'No hay ganado disponible para venta.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
-                      );
-                    }).toList(),
-                    onChanged: (Cattle? cattle) {
-                      setState(() {
-                        _selectedCattle = cattle;
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<Cattle>(
+                      initialValue: _selectedCattle,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Animal vendido',
+                        prefixIcon: Icon(
+                          Icons.agriculture,
+                        ),
+                      ),
+                      items: _availableCattle.map(
+                        (Cattle cattle) {
+                          return DropdownMenuItem<Cattle>(
+                            value: cattle,
+                            child: Text(
+                              'Arete ${cattle.code} - '
+                              '${cattle.initialWeight.toStringAsFixed(1)} kg',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                      ).toList(),
+                      onChanged: (Cattle? cattle) {
+                        setState(() {
+                          _selectedCattle = cattle;
 
-                        if (cattle != null) {
-                          _weightController.text =
-                              cattle.initialWeight.toStringAsFixed(1);
+                          if (cattle != null && !widget.isEditing) {
+                            _weightController.text =
+                                cattle.initialWeight.toStringAsFixed(
+                              1,
+                            );
+                          }
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null) {
+                          return 'Selecciona un animal';
                         }
-                      });
-                    },
-                    validator: (value) {
-                      if (value == null) {
-                        return 'Selecciona un animal';
-                      }
 
-                      return null;
-                    },
-                  ),
+                        return null;
+                      },
+                    ),
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: _buyerController,
+                    textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
                       labelText: 'Nombre del comprador',
-                      prefixIcon: Icon(Icons.person_outline),
+                      prefixIcon: Icon(
+                        Icons.person_outline,
+                      ),
                     ),
                     validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
+                      final String buyer = value?.trim() ?? '';
+
+                      if (buyer.isEmpty) {
                         return 'Ingresa el comprador';
+                      }
+
+                      if (buyer.length < 3) {
+                        return 'El nombre es demasiado corto';
                       }
 
                       return null;
@@ -262,23 +412,43 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                     keyboardType: TextInputType.phone,
                     decoration: const InputDecoration(
                       labelText: 'Teléfono',
-                      prefixIcon: Icon(Icons.phone_outlined),
+                      prefixIcon: Icon(
+                        Icons.phone_outlined,
+                      ),
                     ),
+                    validator: (value) {
+                      final String phone = value?.trim() ?? '';
+
+                      if (phone.isEmpty) {
+                        return null;
+                      }
+
+                      if (!RegExp(r'^\d{10}$').hasMatch(phone)) {
+                        return 'Ingresa exactamente 10 dígitos';
+                      }
+
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 14),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(
-                      Icons.calendar_month,
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.calendar_month,
+                      ),
+                      title: const Text(
+                        'Fecha de venta',
+                      ),
+                      subtitle: Text(
+                        '${_saleDate.day.toString().padLeft(2, '0')}/'
+                        '${_saleDate.month.toString().padLeft(2, '0')}/'
+                        '${_saleDate.year}',
+                      ),
+                      trailing: const Icon(
+                        Icons.edit_calendar,
+                      ),
+                      onTap: _pickDate,
                     ),
-                    title: const Text('Fecha de venta'),
-                    subtitle: Text(
-                      '${_saleDate.day.toString().padLeft(2, '0')}/'
-                      '${_saleDate.month.toString().padLeft(2, '0')}/'
-                      '${_saleDate.year}',
-                    ),
-                    trailing: const Icon(Icons.edit_calendar),
-                    onTap: _pickDate,
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
@@ -294,11 +464,15 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                     ),
                     validator: (value) {
                       final double? weight = double.tryParse(
-                        (value ?? '').replaceAll(',', '.'),
+                        (value ?? '').trim().replaceAll(',', '.'),
                       );
 
                       if (weight == null || weight <= 0) {
                         return 'Ingresa un peso válido';
+                      }
+
+                      if (weight > 2000) {
+                        return 'El peso es demasiado alto';
                       }
 
                       return null;
@@ -312,11 +486,13 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                     ),
                     decoration: const InputDecoration(
                       labelText: 'Precio por kg',
-                      prefixIcon: Icon(Icons.attach_money),
+                      prefixIcon: Icon(
+                        Icons.attach_money,
+                      ),
                     ),
                     validator: (value) {
                       final double? price = double.tryParse(
-                        (value ?? '').replaceAll(',', '.'),
+                        (value ?? '').trim().replaceAll(',', '.'),
                       );
 
                       if (price == null || price <= 0) {
@@ -329,7 +505,9 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                   const SizedBox(height: 18),
                   Card(
                     child: Padding(
-                      padding: const EdgeInsets.all(18),
+                      padding: const EdgeInsets.all(
+                        18,
+                      ),
                       child: Column(
                         children: [
                           const Text(
@@ -352,9 +530,12 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                   const SizedBox(height: 14),
                   DropdownButtonFormField<String>(
                     initialValue: _paymentMethod,
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: 'Método de pago',
-                      prefixIcon: Icon(Icons.payments_outlined),
+                      prefixIcon: Icon(
+                        Icons.payments_outlined,
+                      ),
                     ),
                     items: const [
                       DropdownMenuItem(
@@ -371,26 +552,34 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                       ),
                     ],
                     onChanged: (String? value) {
-                      if (value != null) {
-                        setState(() {
-                          _paymentMethod = value;
-                        });
+                      if (value == null) {
+                        return;
                       }
+
+                      setState(() {
+                        _paymentMethod = value;
+                      });
                     },
                   ),
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: _observationsController,
                     maxLines: 4,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
                       labelText: 'Observaciones (opcional)',
-                      prefixIcon: Icon(Icons.notes_outlined),
+                      prefixIcon: Icon(
+                        Icons.notes_outlined,
+                      ),
                       alignLabelWithHint: true,
                     ),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
-                    onPressed: _isSaving ? null : _saveSale,
+                    onPressed: _isSaving ||
+                            (_availableCattle.isEmpty && !widget.isEditing)
+                        ? null
+                        : _saveSale,
                     icon: _isSaving
                         ? const SizedBox(
                             width: 20,
@@ -399,11 +588,17 @@ class _RegisterSaleScreenState extends State<RegisterSaleScreen> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Icon(
-                            Icons.point_of_sale,
+                        : Icon(
+                            widget.isEditing
+                                ? Icons.update
+                                : Icons.point_of_sale,
                           ),
                     label: Text(
-                      _isSaving ? 'Guardando...' : 'Registrar venta',
+                      _isSaving
+                          ? 'Guardando...'
+                          : widget.isEditing
+                              ? 'Actualizar venta'
+                              : 'Registrar venta',
                     ),
                   ),
                 ],

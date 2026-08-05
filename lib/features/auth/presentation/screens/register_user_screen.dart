@@ -37,6 +37,32 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     ).hasMatch(email);
   }
 
+  String? _validatePassword(String? value) {
+    final String password = value ?? '';
+
+    if (password.isEmpty) {
+      return 'Ingresa una contraseña';
+    }
+
+    if (password.length < 8) {
+      return 'Usa al menos 8 caracteres';
+    }
+
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'Agrega al menos una mayúscula';
+    }
+
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'Agrega al menos una minúscula';
+    }
+
+    if (!RegExp(r'\d').hasMatch(password)) {
+      return 'Agrega al menos un número';
+    }
+
+    return null;
+  }
+
   Future<void> _registerUser() async {
     if (_isSaving) {
       return;
@@ -179,7 +205,7 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
                 final String email = value?.trim() ?? '';
 
                 if (email.isEmpty) {
-                  return 'Ingresa tu correo';
+                  return 'Ingresa tu correo electrónico';
                 }
 
                 if (!_isValidEmail(email)) {
@@ -229,19 +255,7 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
                       : Icons.visibility_off_outlined,
                 ),
               ),
-              validator: (value) {
-                final String password = value ?? '';
-
-                if (password.isEmpty) {
-                  return 'Ingresa una contraseña';
-                }
-
-                if (password.length < 6) {
-                  return 'Usa al menos 6 caracteres';
-                }
-
-                return null;
-              },
+              validator: _validatePassword,
             ),
             const SizedBox(height: 14),
             AppTextField(

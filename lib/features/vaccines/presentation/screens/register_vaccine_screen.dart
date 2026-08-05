@@ -7,7 +7,14 @@ import '../../data/models/vaccine_record.dart';
 import '../../data/repositories/vaccine_repository.dart';
 
 class RegisterVaccineScreen extends StatefulWidget {
-  const RegisterVaccineScreen({super.key});
+  const RegisterVaccineScreen({
+    super.key,
+    this.vaccine,
+  });
+
+  final VaccineRecord? vaccine;
+
+  bool get isEditing => vaccine != null;
 
   @override
   State<RegisterVaccineScreen> createState() => _RegisterVaccineScreenState();
@@ -47,7 +54,19 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   void initState() {
     super.initState();
 
+    final VaccineRecord? vaccine = widget.vaccine;
+
+    if (vaccine != null) {
+      _vaccineController.text = vaccine.vaccineName;
+      _applicationDate = vaccine.applicationDate;
+      _nextDoseDate = vaccine.nextDoseDate;
+      _doseController.text = vaccine.doseNumber.toString();
+      _responsibleController.text = vaccine.responsible;
+      _observationsController.text = vaccine.observations;
+    }
+
     _updateApplicationDateText();
+    _updateNextDoseDateText();
     _loadCattle();
   }
 
@@ -74,8 +93,22 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
         return;
       }
 
+      Cattle? selectedCattle;
+
+      final VaccineRecord? vaccine = widget.vaccine;
+
+      if (vaccine != null) {
+        for (final Cattle cattle in result) {
+          if (cattle.id == vaccine.cattleId) {
+            selectedCattle = cattle;
+            break;
+          }
+        }
+      }
+
       setState(() {
         _cattleList = result;
+        _selectedCattle = selectedCattle;
         _isLoading = false;
       });
     } catch (error) {
@@ -88,7 +121,11 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       });
 
       _showMessage(
-        'No se pudo cargar el ganado: $error',
+        'No fue posible cargar el ganado.',
+      );
+
+      debugPrint(
+        'Error cargando ganado para vacuna: $error',
       );
     }
   }
@@ -183,6 +220,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
     try {
       final VaccineRecord vaccine = VaccineRecord(
+        id: widget.vaccine?.id,
         cattleId: _selectedCattle!.id!,
         cattleCode: _selectedCattle!.code,
         vaccineName: _vaccineController.text.trim(),
@@ -191,12 +229,18 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
         doseNumber: doseNumber,
         responsible: _responsibleController.text.trim(),
         observations: _observationsController.text.trim(),
-        createdAt: DateTime.now(),
+        createdAt: widget.vaccine?.createdAt ?? DateTime.now(),
       );
 
-      await _vaccineRepository.insertVaccineRecord(
-        vaccine,
-      );
+      if (widget.isEditing) {
+        await _vaccineRepository.updateVaccineRecord(
+          vaccine,
+        );
+      } else {
+        await _vaccineRepository.insertVaccineRecord(
+          vaccine,
+        );
+      }
 
       if (!mounted) {
         return;
@@ -244,8 +288,8 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Registrar vacuna',
+        title: Text(
+          widget.isEditing ? 'Actualizar vacuna' : 'Registrar vacuna',
         ),
       ),
       body: _isLoading
@@ -417,11 +461,17 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                               strokeWidth: 2,
                             ),
                           )
-                        : const Icon(
-                            Icons.save_outlined,
+                        : Icon(
+                            widget.isEditing
+                                ? Icons.update
+                                : Icons.save_outlined,
                           ),
                     label: Text(
-                      _isSaving ? 'Guardando...' : 'Guardar vacunación',
+                      _isSaving
+                          ? 'Guardando...'
+                          : widget.isEditing
+                              ? 'Actualizar vacunación'
+                              : 'Guardar vacunación',
                     ),
                   ),
                 ],

@@ -6,8 +6,14 @@ import '../../../auth/presentation/screens/login_screen.dart';
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
-  void _logout(BuildContext context) {
-    SessionManager.instance.clearSession();
+  Future<void> _logout(
+    BuildContext context,
+  ) async {
+    await SessionManager.instance.clearSession();
+
+    if (!context.mounted) {
+      return;
+    }
 
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(

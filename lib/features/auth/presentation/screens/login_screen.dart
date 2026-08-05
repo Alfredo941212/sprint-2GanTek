@@ -7,6 +7,8 @@ import '../../data/models/user_model.dart';
 import '../../data/repositories/auth_repository.dart';
 import 'recover_password_screen.dart';
 import 'register_user_screen.dart';
+import '../../../../core/security/login_attempt_manager.dart';
+import 'dart:async';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -16,6 +18,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final LoginAttemptManager _attemptManager = LoginAttemptManager.instance;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final TextEditingController _emailController = TextEditingController();
@@ -24,8 +27,42 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final AuthRepository _authRepository = AuthRepository();
 
+  Timer? _lockTimer;
+  int _remainingSeconds = 0;
   bool _isLoading = false;
   bool _hidePassword = true;
+
+  void _startLockTimer() {
+    _lockTimer?.cancel();
+
+    setState(() {
+      _remainingSeconds = _attemptManager.remainingSeconds;
+    });
+
+    _lockTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (Timer timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        final int seconds = _attemptManager.remainingSeconds;
+
+        setState(() {
+          _remainingSeconds = seconds;
+        });
+
+        if (!_attemptManager.isBlocked) {
+          timer.cancel();
+
+          setState(() {
+            _remainingSeconds = 0;
+          });
+        }
+      },
+    );
+  }
 
   Future<void> _login() async {
     if (_isLoading) {
@@ -37,7 +74,16 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!isValid) {
       return;
     }
+    if (_attemptManager.isBlocked) {
+      _startLockTimer();
 
+      _showMessage(
+        'Demasiados intentos fallidos. '
+        'Espera ${_attemptManager.remainingSeconds} segundos.',
+      );
+
+      return;
+    }
     setState(() {
       _isLoading = true;
     });
@@ -140,6 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _lockTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
 
@@ -250,7 +297,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        onPressed: _isLoading ? null : _login,
+                        onPressed: _isLoading || _attemptManager.isBlocked
+                            ? null
+                            : _login,
                         icon: _isLoading
                             ? const SizedBox(
                                 width: 20,
@@ -261,7 +310,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               )
                             : const Icon(Icons.login),
                         label: Text(
-                          _isLoading ? 'Iniciando sesión...' : 'Iniciar sesión',
+                          _attemptManager.isBlocked
+                              ? 'Bloqueado: $_remainingSeconds s'
+                              : _isLoading
+                                  ? 'Iniciando sesión...'
+                                  : 'Iniciar sesión',
                         ),
                       ),
                     ),

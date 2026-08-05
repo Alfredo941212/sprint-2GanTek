@@ -1,6 +1,4 @@
-import 'dart:convert';
-
-import 'package:crypto/crypto.dart';
+import 'package:bcrypt/bcrypt.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_helper.dart';
@@ -14,9 +12,10 @@ class AuthRepository {
   }) : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
   String hashPassword(String password) {
-    final List<int> bytes = utf8.encode(password);
-
-    return sha256.convert(bytes).toString();
+    return BCrypt.hashpw(
+      password,
+      BCrypt.gensalt(),
+    );
   }
 
   Future<int> registerUser({
@@ -68,10 +67,9 @@ class AuthRepository {
 
     final List<Map<String, dynamic>> result = await database.query(
       DatabaseHelper.usersTable,
-      where: 'email = ? AND password_hash = ?',
+      where: 'email = ?',
       whereArgs: [
         email.trim().toLowerCase(),
-        hashPassword(password),
       ],
       limit: 1,
     );
@@ -80,7 +78,35 @@ class AuthRepository {
       return null;
     }
 
-    return UserModel.fromMap(result.first);
+    final UserModel user = UserModel.fromMap(result.first);
+
+    final String storedHash = user.passwordHash.trim();
+
+    // Un hash bcrypt válido normalmente empieza con:
+    // $2a$, $2b$ o $2y$
+    final bool isBcryptHash = storedHash.startsWith(r'$2a$') ||
+        storedHash.startsWith(r'$2b$') ||
+        storedHash.startsWith(r'$2y$');
+
+    if (!isBcryptHash) {
+      // Usuario antiguo almacenado con SHA-256.
+      // No se envía a BCrypt.checkpw porque produciría
+      // "Invalid salt version".
+      return null;
+    }
+
+    try {
+      final bool passwordIsValid = BCrypt.checkpw(
+        password,
+        storedHash,
+      );
+
+      return passwordIsValid ? user : null;
+    } on ArgumentError {
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<bool> resetPassword({

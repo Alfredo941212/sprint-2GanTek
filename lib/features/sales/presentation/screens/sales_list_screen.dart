@@ -51,6 +51,39 @@ class _SalesListScreenState extends State<SalesListScreen> {
     }
   }
 
+  Future<void> _openEditSale(
+    Sale sale,
+  ) async {
+    final bool? updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RegisterSaleScreen(
+          sale: sale,
+        ),
+      ),
+    );
+
+    if (updated != true) {
+      return;
+    }
+
+    setState(_loadSales);
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Venta actualizada correctamente.',
+          ),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -94,26 +127,59 @@ class _SalesListScreenState extends State<SalesListScreen> {
               final Sale sale = sales[index];
 
               return Card(
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(
-                      Icons.point_of_sale,
-                    ),
-                  ),
-                  title: Text(
-                    'Arete ${sale.cattleCode}',
-                  ),
-                  subtitle: Text(
-                    'Comprador: ${sale.buyerName}\n'
-                    '${sale.saleWeight.toStringAsFixed(1)} kg × '
-                    '\$${sale.pricePerKg.toStringAsFixed(2)}\n'
-                    'Estado: ${sale.status}',
-                  ),
-                  isThreeLine: true,
-                  trailing: Text(
-                    '\$${sale.total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () {
+                    _openEditSale(sale);
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      children: [
+                        const CircleAvatar(
+                          child: Icon(
+                            Icons.point_of_sale,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Arete ${sale.cattleCode}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                'Comprador: ${sale.buyerName}',
+                              ),
+                              Text(
+                                '${sale.saleWeight.toStringAsFixed(1)} kg × '
+                                '\$${sale.pricePerKg.toStringAsFixed(2)}',
+                              ),
+                              Text(
+                                'Estado: ${sale.status}',
+                              ),
+                            ],
+                          ),
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              '\$${sale.total.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right,
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
                 ),

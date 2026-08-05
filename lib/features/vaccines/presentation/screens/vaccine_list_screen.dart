@@ -85,6 +85,39 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
     }
   }
 
+  Future<void> _openEditVaccine(
+    VaccineRecord vaccine,
+  ) async {
+    final bool? updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RegisterVaccineScreen(
+          vaccine: vaccine,
+        ),
+      ),
+    );
+
+    if (updated != true) {
+      return;
+    }
+
+    setState(_loadVaccines);
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Vacunación actualizada correctamente.',
+          ),
+        ),
+      );
+  }
+
   Future<void> _deleteVaccine(
     VaccineRecord vaccine,
   ) async {
@@ -236,33 +269,54 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                 }
 
                 return Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(14),
-                    leading: CircleAvatar(
-                      child: Icon(
-                        overdue ? Icons.warning_amber : Icons.vaccines,
-                      ),
-                    ),
-                    title: Text(
-                      vaccine.vaccineName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'Animal: ${vaccine.cattleCode}\n'
-                      'Aplicación: ${_formatDate(vaccine.applicationDate)}\n'
-                      'Dosis: ${vaccine.doseNumber}\n'
-                      '$nextDoseText',
-                    ),
-                    isThreeLine: false,
-                    trailing: IconButton(
-                      tooltip: 'Eliminar',
-                      onPressed: () {
-                        _deleteVaccine(vaccine);
-                      },
-                      icon: const Icon(
-                        Icons.delete_outline,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      _openEditVaccine(vaccine);
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          const CircleAvatar(
+                            child: Icon(Icons.vaccines),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  vaccine.vaccineName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 17,
+                                  ),
+                                ),
+                                Text(
+                                  'Animal: ${vaccine.cattleCode}',
+                                ),
+                                Text(
+                                  'Aplicación: '
+                                  '${_formatDate(vaccine.applicationDate)}',
+                                ),
+                                Text(
+                                  'Dosis: ${vaccine.doseNumber}',
+                                ),
+                                Text(nextDoseText),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Eliminar',
+                            onPressed: () {
+                              _deleteVaccine(vaccine);
+                            },
+                            icon: const Icon(
+                              Icons.delete_outline,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

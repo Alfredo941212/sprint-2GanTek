@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../data/models/cattle.dart';
 import 'register_cattle_screen.dart';
 import '../../data/repositories/cattle_repository.dart';
+import '../../../../core/theme/app_colors.dart';
+import 'dart:io';
 
 class CattleListScreen extends StatefulWidget {
   const CattleListScreen({super.key});
@@ -45,6 +47,35 @@ class _CattleListScreenState extends State<CattleListScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Ganado registrado correctamente.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openEditCattle(
+    Cattle cattle,
+  ) async {
+    final bool? updated = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RegisterCattleScreen(
+          cattle: cattle,
+        ),
+      ),
+    );
+
+    if (updated == true) {
+      _loadCattle();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Registro actualizado correctamente.',
+          ),
         ),
       );
     }
@@ -156,25 +187,72 @@ class _CattleListScreenState extends State<CattleListScreen> {
                 final Cattle cattle = cattleList[index];
 
                 return Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.pets),
-                    ),
-                    title: Text(
-                      'Arete: ${cattle.code}',
-                    ),
-                    subtitle: Text(
-                      '${cattle.initialWeight.toStringAsFixed(1)} kg\n'
-                      'Lote: ${cattle.lot.isEmpty ? "Sin lote" : cattle.lot}\n'
-                      'Corral: ${cattle.corral.isEmpty ? "Sin corral" : cattle.corral}',
-                    ),
-                    isThreeLine: true,
-                    trailing: IconButton(
-                      tooltip: 'Eliminar',
-                      onPressed: () {
-                        _deleteCattle(cattle);
-                      },
-                      icon: const Icon(Icons.delete_outline),
+                  margin: const EdgeInsets.only(
+                    bottom: 10,
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      _openEditCattle(cattle);
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 82,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryLight,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.pets,
+                              color: AppColors.primary,
+                              size: 36,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Toro ${cattle.code}',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  'Lote: ${cattle.lot}  |  '
+                                  '${cattle.initialWeight.toStringAsFixed(0)} kg',
+                                ),
+                                Text(
+                                  'Corral: ${cattle.corral}',
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.successSoft,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Disponible',
+                              style: TextStyle(
+                                color: AppColors.success,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -187,6 +265,59 @@ class _CattleListScreenState extends State<CattleListScreen> {
         onPressed: _openRegisterScreen,
         icon: const Icon(Icons.add),
         label: const Text('Registrar'),
+      ),
+    );
+  }
+}
+
+class _CattleImage extends StatelessWidget {
+  const _CattleImage({
+    required this.imagePath,
+  });
+
+  final String? imagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final String? currentPath = imagePath;
+
+    if (currentPath == null || currentPath.isEmpty) {
+      return Container(
+        width: 82,
+        height: 72,
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F3EC),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(
+          Icons.pets,
+          size: 38,
+          color: Color(0xFF0F5132),
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.file(
+        File(currentPath),
+        width: 82,
+        height: 72,
+        fit: BoxFit.cover,
+        errorBuilder: (
+          BuildContext context,
+          Object error,
+          StackTrace? stackTrace,
+        ) {
+          return Container(
+            width: 82,
+            height: 72,
+            alignment: Alignment.center,
+            child: const Icon(
+              Icons.broken_image_outlined,
+            ),
+          );
+        },
       ),
     );
   }
