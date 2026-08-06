@@ -5,6 +5,7 @@ import '../../../cattle/data/models/cattle.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
 import '../../data/models/vaccine_record.dart';
 import '../../data/repositories/vaccine_repository.dart';
+import '../../../../core/session/session_manager.dart';
 
 class RegisterVaccineScreen extends StatefulWidget {
   const RegisterVaccineScreen({
@@ -202,7 +203,14 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       );
       return;
     }
+    final int? userId = SessionManager.instance.currentUserId;
 
+    if (userId == null) {
+      _showMessage(
+        'No hay una sesión activa.',
+      );
+      return;
+    }
     final int? doseNumber = int.tryParse(
       _doseController.text.trim(),
     );
@@ -221,6 +229,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     try {
       final VaccineRecord vaccine = VaccineRecord(
         id: widget.vaccine?.id,
+        userId: userId,
         cattleId: _selectedCattle!.id!,
         cattleCode: _selectedCattle!.code,
         vaccineName: _vaccineController.text.trim(),

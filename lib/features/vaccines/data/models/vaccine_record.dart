@@ -1,5 +1,6 @@
 class VaccineRecord {
   final int? id;
+  final int userId;
   final int cattleId;
   final String cattleCode;
   final String vaccineName;
@@ -12,6 +13,7 @@ class VaccineRecord {
 
   const VaccineRecord({
     this.id,
+    required this.userId,
     required this.cattleId,
     required this.cattleCode,
     required this.vaccineName,
@@ -26,6 +28,7 @@ class VaccineRecord {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'user_id': userId,
       'cattle_id': cattleId,
       'cattle_code': cattleCode,
       'vaccine_name': vaccineName,
@@ -38,12 +41,15 @@ class VaccineRecord {
     };
   }
 
-  factory VaccineRecord.fromMap(Map<String, dynamic> map) {
+  factory VaccineRecord.fromMap(
+    Map<String, dynamic> map,
+  ) {
     return VaccineRecord(
-      id: map['id'] as int?,
-      cattleId: map['cattle_id'] as int,
-      cattleCode: map['cattle_code'] as String,
-      vaccineName: map['vaccine_name'] as String,
+      id: (map['id'] as num?)?.toInt(),
+      userId: (map['user_id'] as num).toInt(),
+      cattleId: (map['cattle_id'] as num).toInt(),
+      cattleCode: map['cattle_code'] as String? ?? '',
+      vaccineName: map['vaccine_name'] as String? ?? '',
       applicationDate: DateTime.parse(
         map['application_date'] as String,
       ),
@@ -52,7 +58,7 @@ class VaccineRecord {
           : DateTime.parse(
               map['next_dose_date'] as String,
             ),
-      doseNumber: map['dose_number'] as int,
+      doseNumber: (map['dose_number'] as num).toInt(),
       responsible: map['responsible'] as String? ?? '',
       observations: map['observations'] as String? ?? '',
       createdAt: DateTime.parse(
