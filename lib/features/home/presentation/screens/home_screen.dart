@@ -11,6 +11,9 @@ import '../../../sales/presentation/screens/sales_list_screen.dart';
 import '../../../vaccines/presentation/screens/vaccine_list_screen.dart';
 import '../../data/models/dashboard_summary.dart';
 import '../../data/repositories/dashboard_repository.dart';
+import '../../../cattle/presentation/screens/register_cattle_screen.dart';
+import '../../../sales/presentation/screens/register_sale_screen.dart';
+import '../../../vaccines/presentation/screens/register_vaccine_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +34,36 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadDashboard();
+  }
+
+  Future<void> _openForm(
+    Widget screen,
+    String successMessage,
+  ) async {
+    final bool? saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => screen,
+      ),
+    );
+
+    if (saved != true || !mounted) {
+      return;
+    }
+
+    await _loadDashboard();
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(successMessage),
+        ),
+      );
   }
 
   Future<void> _loadDashboard() async {
@@ -219,11 +252,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('GANTEK'),
-        leading: IconButton(
-          tooltip: 'Menú',
-          onPressed: () {},
-          icon: const Icon(Icons.menu),
-        ),
         actions: [
           IconButton(
             tooltip: 'Notificaciones',
@@ -295,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          '¡Hola, $_firstName! 👋',
+          '¡Hola, $_firstName!',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
         const SizedBox(height: 4),
@@ -393,11 +421,11 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _QuickAction(
                 icon: Icons.add_circle_outline,
-                label: 'Registrar\nganado',
+                label: 'Nuevo\nganado',
                 onTap: () {
-                  _open(
-                    context,
-                    const CattleListScreen(),
+                  _openForm(
+                    const RegisterCattleScreen(),
+                    'Ganado registrado correctamente.',
                   );
                 },
               ),
@@ -405,16 +433,12 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickAction(
-                icon: Icons.campaign_outlined,
-                label: 'Publicar',
+                icon: Icons.point_of_sale_outlined,
+                label: 'Nueva\nventa',
                 onTap: () {
-                  /*
-                   * Después se conectará con
-                   * Publicar en venta.
-                   */
-                  _open(
-                    context,
-                    const SalesListScreen(),
+                  _openForm(
+                    const RegisterSaleScreen(),
+                    'Venta registrada correctamente.',
                   );
                 },
               ),
@@ -422,36 +446,28 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickAction(
-                icon: Icons.sell_outlined,
-                label: 'Registrar\nventa',
+                icon: Icons.vaccines_outlined,
+                label: 'Nueva\nvacuna',
                 onTap: () {
-                  _open(
-                    context,
-                    const SalesListScreen(),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _QuickAction(
-                icon: Icons.bar_chart,
-                label: 'Ver\nreportes',
-                onTap: () {
-                  _open(
-                    context,
-                    const ReportsScreen(),
+                  _openForm(
+                    const RegisterVaccineScreen(),
+                    'Vacunación registrada correctamente.',
                   );
                 },
               ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 26),
+        Text(
+          'Administración',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
         _ModuleTile(
           icon: Icons.pets,
           title: 'Ganado',
-          subtitle: 'Consulta y administra tus animales',
+          subtitle: 'Consultar, actualizar y eliminar animales',
           onTap: () {
             _open(
               context,
@@ -463,7 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _ModuleTile(
           icon: Icons.point_of_sale,
           title: 'Ventas',
-          subtitle: 'Registra y consulta tus ventas',
+          subtitle: 'Consultar, actualizar y cancelar ventas',
           onTap: () {
             _open(
               context,
@@ -475,7 +491,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _ModuleTile(
           icon: Icons.vaccines_outlined,
           title: 'Vacunas',
-          subtitle: 'Control sanitario y próximas dosis',
+          subtitle: 'Consultar, actualizar y eliminar vacunas',
           onTap: () {
             _open(
               context,
@@ -487,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _ModuleTile(
           icon: Icons.bar_chart,
           title: 'Reportes',
-          subtitle: 'Consulta indicadores y genera PDF',
+          subtitle: 'Consultar indicadores',
           onTap: () {
             _open(
               context,
