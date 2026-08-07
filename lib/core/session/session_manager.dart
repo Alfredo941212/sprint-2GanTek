@@ -41,7 +41,13 @@ class SessionManager {
       key: _userIdKey,
     );
 
-    return int.tryParse(storedValue ?? '');
+    if (storedValue == null) {
+      return null;
+    }
+
+    return int.tryParse(
+      storedValue,
+    );
   }
 
   Future<void> clearSession() async {

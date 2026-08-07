@@ -1,19 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../../../../core/session/session_manager.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/summary_card.dart';
+
 import '../../../auth/presentation/screens/login_screen.dart';
 import '../../../cattle/presentation/screens/cattle_list_screen.dart';
+import '../../../cattle/presentation/screens/register_cattle_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
 import '../../../reports/presentation/screens/reports_screen.dart';
+import '../../../sales/presentation/screens/register_sale_screen.dart';
 import '../../../sales/presentation/screens/sales_list_screen.dart';
+import '../../../vaccines/presentation/screens/register_vaccine_screen.dart';
 import '../../../vaccines/presentation/screens/vaccine_list_screen.dart';
+
 import '../../data/models/dashboard_summary.dart';
 import '../../data/repositories/dashboard_repository.dart';
-import '../../../cattle/presentation/screens/register_cattle_screen.dart';
-import '../../../sales/presentation/screens/register_sale_screen.dart';
-import '../../../vaccines/presentation/screens/register_vaccine_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,9 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _isLoading = false;
       });
 
-      debugPrint(
-        'Error cargando dashboard: $error',
-      );
+      debugPrint('Error cargando dashboard: $error');
     }
   }
 
@@ -111,10 +112,6 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => screen,
       ),
     ).then((_) {
-      /*
-       * Cuando regresamos de ganado, ventas,
-       * vacunas o reportes, actualizamos el panel.
-       */
       _loadDashboard();
     });
   }
@@ -147,7 +144,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _formatMoney(double value) {
     final String amount = value.toStringAsFixed(2);
-
     final List<String> parts = amount.split('.');
 
     final String integers = parts[0];
@@ -169,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showUserMenu() async {
-    final selected = await showMenu<String>(
+    final String? selected = await showMenu<String>(
       context: context,
       position: const RelativeRect.fromLTRB(
         1000,
@@ -206,9 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
           value: 'profile',
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              Icons.person_outline,
-            ),
+            leading: Icon(Icons.person_outline),
             title: Text('Mi perfil'),
           ),
         ),
@@ -343,24 +337,32 @@ class _HomeScreenState extends State<HomeScreen> {
             SummaryCard(
               title: 'Ganado registrado',
               value: '${_summary.registeredCattle}',
-              icon: Icons.pets,
+              icon: const FaIcon(
+                FontAwesomeIcons.cow,
+              ),
             ),
             SummaryCard(
               title: 'Listos para venta',
               value: '${_summary.availableCattle}',
-              icon: Icons.sell_outlined,
+              icon: const Icon(
+                Icons.sell_outlined,
+              ),
               iconColor: AppColors.gold,
             ),
             SummaryCard(
               title: 'Publicados',
               value: '${_summary.publishedCattle}',
-              icon: Icons.campaign_outlined,
+              icon: const Icon(
+                Icons.campaign_outlined,
+              ),
               iconColor: AppColors.info,
             ),
             SummaryCard(
               title: 'Ventas del mes',
               value: '${_summary.monthlySales}',
-              icon: Icons.point_of_sale,
+              icon: const Icon(
+                Icons.point_of_sale,
+              ),
               iconColor: AppColors.success,
             ),
           ],
@@ -420,7 +422,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Expanded(
               child: _QuickAction(
-                icon: Icons.add_circle_outline,
+                icon: const FaIcon(
+                  FontAwesomeIcons.cow,
+                ),
                 label: 'Nuevo\nganado',
                 onTap: () {
                   _openForm(
@@ -433,7 +437,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickAction(
-                icon: Icons.point_of_sale_outlined,
+                icon: const Icon(
+                  Icons.point_of_sale_outlined,
+                ),
                 label: 'Nueva\nventa',
                 onTap: () {
                   _openForm(
@@ -446,7 +452,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _QuickAction(
-                icon: Icons.vaccines_outlined,
+                icon: const Icon(
+                  Icons.vaccines_outlined,
+                ),
                 label: 'Nueva\nvacuna',
                 onTap: () {
                   _openForm(
@@ -465,7 +473,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 12),
         _ModuleTile(
-          icon: Icons.pets,
+          icon: const FaIcon(
+            FontAwesomeIcons.cow,
+          ),
           title: 'Ganado',
           subtitle: 'Consultar, actualizar y eliminar animales',
           onTap: () {
@@ -477,7 +487,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 10),
         _ModuleTile(
-          icon: Icons.point_of_sale,
+          icon: const Icon(
+            Icons.point_of_sale,
+          ),
           title: 'Ventas',
           subtitle: 'Consultar, actualizar y cancelar ventas',
           onTap: () {
@@ -489,7 +501,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 10),
         _ModuleTile(
-          icon: Icons.vaccines_outlined,
+          icon: const Icon(
+            Icons.vaccines_outlined,
+          ),
           title: 'Vacunas',
           subtitle: 'Consultar, actualizar y eliminar vacunas',
           onTap: () {
@@ -501,7 +515,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 10),
         _ModuleTile(
-          icon: Icons.bar_chart,
+          icon: const Icon(
+            Icons.bar_chart,
+          ),
           title: 'Reportes',
           subtitle: 'Consultar indicadores',
           onTap: () {
@@ -524,7 +540,7 @@ class _QuickAction extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final Widget icon;
   final String label;
   final VoidCallback onTap;
 
@@ -546,10 +562,12 @@ class _QuickAction extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              color: AppColors.primary,
-              size: 30,
+            IconTheme(
+              data: const IconThemeData(
+                color: AppColors.primary,
+                size: 30,
+              ),
+              child: icon,
             ),
             const SizedBox(height: 8),
             Text(
@@ -574,7 +592,7 @@ class _ModuleTile extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  final Widget icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -594,9 +612,14 @@ class _ModuleTile extends StatelessWidget {
             color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Icon(
-            icon,
-            color: AppColors.primary,
+          child: Center(
+            child: IconTheme(
+              data: const IconThemeData(
+                color: AppColors.primary,
+                size: 24,
+              ),
+              child: icon,
+            ),
           ),
         ),
         title: Text(

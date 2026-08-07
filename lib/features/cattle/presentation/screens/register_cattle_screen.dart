@@ -452,12 +452,12 @@ class _RegisterCattleScreenState extends State<RegisterCattleScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 14),
+            /*  const SizedBox(height: 14),
             AppTextField(
               label: 'Vacunas aplicadas',
               controller: _vaccinesController,
               icon: Icons.vaccines_outlined,
-            ),
+            ),*/
             const SizedBox(height: 14),
             AppTextField(
               label: 'Número de lote',

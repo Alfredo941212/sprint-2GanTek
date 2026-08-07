@@ -66,7 +66,7 @@ class RecentSaleReport {
     Map<String, dynamic> map,
   ) {
     return RecentSaleReport(
-      id: (map['id'] as num).toInt(),
+      id: (map['id'] as num).toInt() ?? 0,
       cattleCode: map['cattle_code'] as String? ?? '',
       buyerName: map['buyer_name'] as String? ?? '',
       saleDate: DateTime.parse(

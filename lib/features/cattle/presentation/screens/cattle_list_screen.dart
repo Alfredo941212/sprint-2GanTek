@@ -4,6 +4,7 @@ import 'register_cattle_screen.dart';
 import '../../data/repositories/cattle_repository.dart';
 import '../../../../core/theme/app_colors.dart';
 import 'dart:io';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class CattleListScreen extends StatefulWidget {
   const CattleListScreen({super.key});
@@ -206,10 +207,10 @@ class _CattleListScreenState extends State<CattleListScreen> {
                               color: AppColors.primaryLight,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(
-                              Icons.pets,
-                              color: AppColors.primary,
-                              size: 36,
+                            child: const FaIcon(
+                              FontAwesomeIcons.cow,
+                              size: 38,
+                              color: Color(0xFF0F5132),
                             ),
                           ),
                           const SizedBox(width: 12),

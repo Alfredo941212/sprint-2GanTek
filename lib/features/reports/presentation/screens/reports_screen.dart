@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
+import 'package:gantek/core/session/session_manager.dart';
 
 import '../../data/models/report_summary.dart';
 import '../../data/repositories/report_repository.dart';
@@ -19,6 +22,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   String? _errorMessage;
 
   ReportSummary _summary = ReportSummary.empty();
+
   List<RecentSaleReport> _recentSales = <RecentSaleReport>[];
 
   @override
@@ -28,19 +32,37 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _loadReports() async {
+    if (!mounted) {
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
+      final int? userId = SessionManager.instance.currentUserId;
+
+      if (userId == null) {
+        throw StateError(
+          'No hay una sesión activa.',
+        );
+      }
+
+      debugPrint(
+        'Cargando reportes para user_id: $userId',
+      );
+
       final ReportSummary summary = await _repository.getSummary(
+        userId: userId,
         startDate: _selectedRange?.start,
         endDate: _selectedRange?.end,
       );
 
       final List<RecentSaleReport> recentSales =
           await _repository.getRecentSales(
+        userId: userId,
         startDate: _selectedRange?.start,
         endDate: _selectedRange?.end,
       );
@@ -54,13 +76,26 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _recentSales = recentSales;
         _isLoading = false;
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Error cargando reportes: $error',
+      );
+
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
+
       if (!mounted) {
         return;
       }
 
       setState(() {
+        _summary = ReportSummary.empty();
+
+        _recentSales = <RecentSaleReport>[];
+
         _errorMessage = error.toString();
+
         _isLoading = false;
       });
     }
@@ -99,17 +134,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
     await _loadReports();
   }
 
-  String _formatDate(DateTime date) {
+  String _formatDate(
+    DateTime date,
+  ) {
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
         '${date.year}';
   }
 
-  String _formatMoney(double value) {
+  String _formatMoney(
+    double value,
+  ) {
     final String valueText = value.toStringAsFixed(2);
 
     final List<String> parts = valueText.split('.');
+
     final String integerPart = parts.first;
+
     final String decimalPart = parts.last;
 
     final StringBuffer formatted = StringBuffer();
@@ -117,7 +158,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     for (int index = 0; index < integerPart.length; index++) {
       final int positionFromEnd = integerPart.length - index;
 
-      formatted.write(integerPart[index]);
+      formatted.write(
+        integerPart[index],
+      );
 
       if (positionFromEnd > 1 && positionFromEnd % 3 == 1) {
         formatted.write(',');
@@ -138,7 +181,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reportes'),
@@ -146,7 +191,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
           IconButton(
             tooltip: 'Actualizar',
             onPressed: _isLoading ? null : _loadReports,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(
+              Icons.refresh,
+            ),
           ),
         ],
       ),
@@ -172,21 +219,31 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 Icons.error_outline,
                 size: 64,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(
+                height: 16,
+              ),
               const Text(
                 'No fue posible generar los reportes.',
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(
+                height: 8,
+              ),
               Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(
+                height: 20,
+              ),
               ElevatedButton.icon(
                 onPressed: _loadReports,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Intentar de nuevo'),
+                icon: const Icon(
+                  Icons.refresh,
+                ),
+                label: const Text(
+                  'Intentar de nuevo',
+                ),
               ),
             ],
           ),
@@ -205,47 +262,64 @@ class _ReportsScreenState extends State<ReportsScreen> {
             onSelectPeriod: _selectDateRange,
             onClearPeriod: _clearDateRange,
           ),
-          const SizedBox(height: 18),
+          const SizedBox(
+            height: 18,
+          ),
           const _SectionTitle(
-            title: 'Resumen del ganado',
+            title: 'Resumen del animal',
             icon: Icons.pets,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(
+            height: 10,
+          ),
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
                 title: 'Registrado',
                 value: '${_summary.totalCattle}',
                 description: 'Total de animales',
-                icon: Icons.pets,
+                icon: const FaIcon(
+                  FontAwesomeIcons.cow,
+                  size: 26,
+                ),
               ),
               _SummaryCard(
                 title: 'Disponible',
                 value: '${_summary.availableCattle}',
                 description: 'Animales no vendidos',
-                icon: Icons.check_circle_outline,
+                icon: const Icon(
+                  Icons.check_circle_outline,
+                ),
               ),
               _SummaryCard(
                 title: 'Vendido',
                 value: '${_summary.soldCattle}',
                 description: 'Animales vendidos',
-                icon: Icons.sell_outlined,
+                icon: const Icon(
+                  Icons.sell_outlined,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(
+            height: 22,
+          ),
           const _SectionTitle(
             title: 'Resumen de ventas',
             icon: Icons.point_of_sale,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(
+            height: 10,
+          ),
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
                 title: 'Ventas',
                 value: '${_summary.completedSales}',
                 description: 'Ventas completadas',
-                icon: Icons.receipt_long_outlined,
+                icon: const Icon(
+                  Icons.receipt_long_outlined,
+                ),
               ),
               _SummaryCard(
                 title: 'Ingresos',
@@ -253,61 +327,83 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   _summary.totalSalesAmount,
                 ),
                 description: 'Monto total vendido',
-                icon: Icons.attach_money,
+                icon: const Icon(
+                  Icons.attach_money,
+                ),
               ),
               _SummaryCard(
                 title: 'Peso vendido',
                 value: '${_summary.totalSoldWeight.toStringAsFixed(1)} kg',
                 description: 'Peso acumulado',
-                icon: Icons.monitor_weight_outlined,
+                icon: const Icon(
+                  Icons.monitor_weight_outlined,
+                ),
               ),
               _SummaryCard(
                 title: 'Precio promedio',
                 value: '\$${_summary.averagePricePerKg.toStringAsFixed(2)}',
                 description: 'Promedio por kilogramo',
-                icon: Icons.trending_up,
+                icon: const Icon(
+                  Icons.trending_up,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(
+            height: 22,
+          ),
           const _SectionTitle(
             title: 'Control sanitario',
             icon: Icons.vaccines_outlined,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(
+            height: 10,
+          ),
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
                 title: 'Aplicadas',
                 value: '${_summary.appliedVaccines}',
                 description: 'Vacunas registradas',
-                icon: Icons.vaccines,
+                icon: const Icon(
+                  Icons.vaccines,
+                ),
               ),
               _SummaryCard(
                 title: 'Próximas',
                 value: '${_summary.upcomingVaccines}',
                 description: 'En los próximos 30 días',
-                icon: Icons.event_available_outlined,
+                icon: const Icon(
+                  Icons.event_available_outlined,
+                ),
               ),
               _SummaryCard(
                 title: 'Vencidas',
                 value: '${_summary.overdueVaccines}',
                 description: 'Requieren atención',
-                icon: Icons.warning_amber,
+                icon: const Icon(
+                  Icons.warning_amber,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(
+            height: 24,
+          ),
           const _SectionTitle(
             title: 'Ventas recientes',
             icon: Icons.history,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(
+            height: 10,
+          ),
           if (_recentSales.isEmpty)
             const _EmptySalesCard()
           else
             ..._recentSales.map(
-              (RecentSaleReport sale) {
+              (
+                RecentSaleReport sale,
+              ) {
                 return _RecentSaleCard(
                   sale: sale,
                   formatDate: _formatDate,
@@ -315,7 +411,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 );
               },
             ),
-          const SizedBox(height: 30),
+          const SizedBox(
+            height: 30,
+          ),
         ],
       ),
     );
@@ -336,16 +434,22 @@ class _PeriodCard extends StatelessWidget {
   final VoidCallback onClearPeriod;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
             const CircleAvatar(
-              child: Icon(Icons.date_range),
+              child: Icon(
+                Icons.date_range,
+              ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(
+              width: 14,
+            ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,7 +460,9 @@ class _PeriodCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(
+                    height: 4,
+                  ),
                   Text(periodText),
                 ],
               ),
@@ -365,7 +471,9 @@ class _PeriodCard extends StatelessWidget {
               IconButton(
                 tooltip: 'Quitar filtro',
                 onPressed: onClearPeriod,
-                icon: const Icon(Icons.close),
+                icon: const Icon(
+                  Icons.close,
+                ),
               ),
             IconButton(
               tooltip: 'Seleccionar periodo',
@@ -391,11 +499,15 @@ class _SectionTitle extends StatelessWidget {
   final IconData icon;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Row(
       children: [
         Icon(icon),
-        const SizedBox(width: 8),
+        const SizedBox(
+          width: 8,
+        ),
         Text(
           title,
           style: Theme.of(context).textTheme.titleLarge,
@@ -413,7 +525,9 @@ class _ResponsiveSummaryGrid extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return LayoutBuilder(
       builder: (
         BuildContext context,
@@ -427,12 +541,16 @@ class _ResponsiveSummaryGrid extends StatelessWidget {
         return Wrap(
           spacing: 12,
           runSpacing: 12,
-          children: children.map((Widget child) {
-            return SizedBox(
-              width: itemWidth,
-              child: child,
-            );
-          }).toList(),
+          children: children.map(
+            (
+              Widget child,
+            ) {
+              return SizedBox(
+                width: itemWidth,
+                child: child,
+              );
+            },
+          ).toList(),
         );
       },
     );
@@ -450,18 +568,22 @@ class _SummaryCard extends StatelessWidget {
   final String title;
   final String value;
   final String description;
-  final IconData icon;
+  final Widget icon;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon),
-            const SizedBox(height: 12),
+            icon,
+            const SizedBox(
+              height: 12,
+            ),
             Text(
               value,
               maxLines: 2,
@@ -470,14 +592,18 @@ class _SummaryCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(
+              height: 4,
+            ),
             Text(
               title,
               style: const TextStyle(
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(
+              height: 2,
+            ),
             Text(
               description,
               style: Theme.of(context).textTheme.bodySmall,
@@ -497,17 +623,28 @@ class _RecentSaleCard extends StatelessWidget {
   });
 
   final RecentSaleReport sale;
-  final String Function(DateTime) formatDate;
-  final String Function(double) formatMoney;
+  final String Function(
+    DateTime,
+  ) formatDate;
+
+  final String Function(
+    double,
+  ) formatMoney;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(
+        bottom: 10,
+      ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(14),
         leading: const CircleAvatar(
-          child: Icon(Icons.sell_outlined),
+          child: Icon(
+            Icons.sell_outlined,
+          ),
         ),
         title: Text(
           'Arete ${sale.cattleCode}',
@@ -538,7 +675,9 @@ class _EmptySalesCard extends StatelessWidget {
   const _EmptySalesCard();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return const Card(
       child: Padding(
         padding: EdgeInsets.all(24),
@@ -548,7 +687,9 @@ class _EmptySalesCard extends StatelessWidget {
               Icons.receipt_long_outlined,
               size: 52,
             ),
-            SizedBox(height: 12),
+            SizedBox(
+              height: 12,
+            ),
             Text(
               'No hay ventas registradas en el periodo seleccionado.',
               textAlign: TextAlign.center,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../cattle/data/models/cattle.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
@@ -340,8 +340,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Animal vacunado',
-                        prefixIcon: Icon(
-                          Icons.pets_outlined,
+                        prefixIcon: const FaIcon(
+                          FontAwesomeIcons.cow,
+                          size: 38,
+                          color: Color(0xFF0F5132),
                         ),
                       ),
                       items: _cattleList.map(
