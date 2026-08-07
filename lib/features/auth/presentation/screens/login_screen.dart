@@ -208,15 +208,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    const CircleAvatar(
-                      radius: 48,
-                      backgroundColor: AppColors.primary,
-                      child: Icon(
-                        Icons.agriculture,
-                        size: 54,
-                        color: Colors.white,
+                    CircleAvatar(
+                    radius: 48,
+                    backgroundColor: AppColors.primary,
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Image.asset(
+                        'assets/icon/gantek_icon.png',
+                        fit: BoxFit.contain,
                       ),
                     ),
+                  ),
                     const SizedBox(height: 18),
                     const Text(
                       'GanTek',

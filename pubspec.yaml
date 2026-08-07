@@ -35,6 +35,8 @@ integration_test:
 flutter:
   uses-material-design: true
 
+  assets:
+    - assets/icon/gantek_icon.png
 
 flutter_launcher_icons:
   android: true
