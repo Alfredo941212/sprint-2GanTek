@@ -38,4 +38,4 @@ flutter pub add flutter_secure_storage
 flutter pub add image_picker
 flutter pub add path_provider
 flutter pub add pdf
-flutter pub add printing
+flutter pub add printing    
