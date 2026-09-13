@@ -172,6 +172,123 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _loginWithGoogle() async {
+    if (_isLoading) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('=== GOOGLE LOGIN: INICIANDO ===');
+
+      final UserModel? user = await _authRepository.signInWithGoogle();
+
+      print('=== GOOGLE LOGIN: USUARIO RECIBIDO ===');
+      print(user?.toMap());
+
+      if (user == null) {
+        _showMessage(
+          'No fue posible obtener los datos del usuario.',
+        );
+        return;
+      }
+
+      await SessionManager.instance.setCurrentUser(user);
+
+      print('=== GOOGLE LOGIN: SESIÓN GUARDADA ===');
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+        ),
+      );
+    } on Exception catch (error, stackTrace) {
+      print('====================================');
+      print('=== ERROR COMPLETO GOOGLE LOGIN ===');
+      print('ERROR: $error');
+      print('STACK TRACE: $stackTrace');
+      print('====================================');
+
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(
+        error.toString().replaceFirst(
+              'Exception: ',
+              '',
+            ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loginWithFacebook() async {
+    if (_isLoading) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final UserModel? user = await _authRepository.signInWithFacebook();
+
+      if (user == null) {
+        _showMessage(
+          'Inicio de sesión con Facebook cancelado.',
+        );
+        return;
+      }
+
+      await SessionManager.instance.setCurrentUser(
+        user,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const HomeScreen(),
+        ),
+      );
+    } on Exception catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(
+        error.toString().replaceFirst(
+              'Exception: ',
+              '',
+            ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   void _showMessage(String message) {
     if (!mounted) {
       return;
@@ -209,16 +326,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: Column(
                   children: [
                     CircleAvatar(
-                    radius: 48,
-                    backgroundColor: AppColors.primary,
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Image.asset(
-                        'assets/icon/gantek_icon.png',
-                        fit: BoxFit.contain,
+                      radius: 48,
+                      backgroundColor: AppColors.primary,
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Image.asset(
+                          'assets/icon/gantek_icon.png',
+                          fit: BoxFit.contain,
+                        ),
                       ),
                     ),
-                  ),
                     const SizedBox(height: 18),
                     const Text(
                       'GanTek',
@@ -320,7 +437,79 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 24),
+                    const SizedBox(height: 24),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'o continúa con',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+// Google
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _loginWithGoogle,
+                        icon: const Icon(
+                          Icons.g_mobiledata,
+                          size: 30,
+                        ),
+                        label: const Text(
+                          'Continuar con Google',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 12),
+
+// Facebook
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _isLoading ? null : _loginWithFacebook,
+                        icon: const Icon(
+                          Icons.facebook,
+                          size: 24,
+                        ),
+                        label: const Text(
+                          'Continuar con Facebook',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [

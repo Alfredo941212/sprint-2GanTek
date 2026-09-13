@@ -1,0 +1,90 @@
+{
+  "project_info": {
+    "project_number": "73932782693",
+    "project_id": "gantek-e6fbc",
+    "storage_bucket": "gantek-e6fbc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:73932782693:android:e92b12e9ef56c4bc3d1a8c",
+        "android_client_info": {
+          "package_name": "com.ejemplo.gantek"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "73932782693-tjcmnouhj6nc9r401pqg07re58bbcgb8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ejemplo.gantek",
+            "certificate_hash": "a9fd78d7a730f44cca66c90c8e433f3d4ae13832"
+          }
+        },
+        {
+          "client_id": "73932782693-qn0t7tt7av2uopfn24o061vhfq1bh9ks.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBNQoJJoSla6dedef45tMfd58RM1nRwglw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "73932782693-qn0t7tt7av2uopfn24o061vhfq1bh9ks.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "73932782693-8oisdac4fm59vl6amngl7b531ndbktkv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterApplication1"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:73932782693:android:d6c7e27f496d53153d1a8c",
+        "android_client_info": {
+          "package_name": "com.ejemplo.gantek"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "73932782693-qn0t7tt7av2uopfn24o061vhfq1bh9ks.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBNQoJJoSla6dedef45tMfd58RM1nRwglw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "73932782693-qn0t7tt7av2uopfn24o061vhfq1bh9ks.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "73932782693-8oisdac4fm59vl6amngl7b531ndbktkv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterApplication1"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

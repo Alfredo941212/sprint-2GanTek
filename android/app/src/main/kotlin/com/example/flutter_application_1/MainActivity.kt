@@ -1,4 +1,4 @@
-package com.gantek.app
+package com.ejemplo.gantek
 
 import io.flutter.embedding.android.FlutterActivity
 

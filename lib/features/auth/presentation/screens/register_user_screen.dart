@@ -87,15 +87,6 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     });
 
     try {
-      final bool exists = await _authRepository.emailExists(email);
-
-      if (exists) {
-        _showMessage(
-          'Ya existe un usuario registrado con este correo.',
-        );
-        return;
-      }
-
       await _authRepository.registerUser(
         fullName: fullName,
         email: email,
@@ -107,19 +98,24 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
         return;
       }
 
-      // Cierra solamente la pantalla de registro
-      // y devuelve el correo al inicio de sesión.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Cuenta creada. Revisa tu correo para verificarla.',
+          ),
+        ),
+      );
+
       Navigator.pop<String>(
         context,
         email,
       );
-    } on DatabaseException catch (error) {
-      _showMessage(
-        'No se pudo registrar el usuario: $error',
-      );
     } catch (error) {
       _showMessage(
-        'Ocurrió un error inesperado: $error',
+        error.toString().replaceFirst(
+              'Exception: ',
+              '',
+            ),
       );
     } finally {
       if (mounted) {
