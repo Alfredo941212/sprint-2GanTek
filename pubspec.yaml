@@ -24,6 +24,10 @@ dependencies:
   shared_preferences: ^2.5.5
   intl: ^0.20.3
   font_awesome_flutter: ^11.0.0
+  firebase_core: ^4.14.0
+  firebase_auth: ^6.6.1
+  google_sign_in: ^7.2.0
+  flutter_facebook_auth: ^7.2.0
 
 dev_dependencies:
   flutter_test:

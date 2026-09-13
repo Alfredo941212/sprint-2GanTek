@@ -219,7 +219,7 @@ class _CattleListScreenState extends State<CattleListScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Toro ${cattle.code}',
+                                  '${cattle.code}',
                                   style:
                                       Theme.of(context).textTheme.titleMedium,
                                 ),

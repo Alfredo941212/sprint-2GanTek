@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">GanTek</string>
+    <string name="facebook_app_id">1068163295947249</string>
+    <string name="fb_login_protocol_scheme">fb1068163295947249</string>
+    <string name="facebook_client_token">c2decd6d1d530f893c1328d279fa1b5a</string>
+</resources>
