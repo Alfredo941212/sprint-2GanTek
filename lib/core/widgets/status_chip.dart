@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
 enum CattleStatus {
-  available,
-  published,
-  growing,
-  sold,
-  reserved,
+  active,
+  inactive,
+  deceased,
+  removed,
 }
 
 class StatusChip extends StatelessWidget {
@@ -20,46 +19,49 @@ class StatusChip extends StatelessWidget {
 
   String get label {
     switch (status) {
-      case CattleStatus.available:
-        return 'Listo para venta';
-      case CattleStatus.published:
-        return 'Publicado';
-      case CattleStatus.growing:
-        return 'En crecimiento';
-      case CattleStatus.sold:
-        return 'Vendido';
-      case CattleStatus.reserved:
-        return 'Reservado';
+      case CattleStatus.active:
+        return 'Activo';
+
+      case CattleStatus.inactive:
+        return 'Inactivo';
+
+      case CattleStatus.deceased:
+        return 'Fallecido';
+
+      case CattleStatus.removed:
+        return 'Baja';
     }
   }
 
   Color get backgroundColor {
     switch (status) {
-      case CattleStatus.available:
+      case CattleStatus.active:
         return AppColors.successSoft;
-      case CattleStatus.published:
-        return AppColors.infoSoft;
-      case CattleStatus.growing:
+
+      case CattleStatus.inactive:
         return AppColors.warningSoft;
-      case CattleStatus.sold:
+
+      case CattleStatus.deceased:
         return AppColors.surfaceSoft;
-      case CattleStatus.reserved:
-        return AppColors.goldSoft;
+
+      case CattleStatus.removed:
+        return AppColors.infoSoft;
     }
   }
 
   Color get foregroundColor {
     switch (status) {
-      case CattleStatus.available:
+      case CattleStatus.active:
         return AppColors.success;
-      case CattleStatus.published:
-        return AppColors.info;
-      case CattleStatus.growing:
+
+      case CattleStatus.inactive:
         return AppColors.warning;
-      case CattleStatus.sold:
+
+      case CattleStatus.deceased:
         return AppColors.textSecondary;
-      case CattleStatus.reserved:
-        return AppColors.gold;
+
+      case CattleStatus.removed:
+        return AppColors.info;
     }
   }
 

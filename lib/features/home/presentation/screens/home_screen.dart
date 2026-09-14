@@ -10,16 +10,25 @@ import '../../../cattle/presentation/screens/cattle_list_screen.dart';
 import '../../../cattle/presentation/screens/register_cattle_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
 import '../../../reports/presentation/screens/reports_screen.dart';
-import '../../../sales/presentation/screens/register_sale_screen.dart';
-import '../../../sales/presentation/screens/sales_list_screen.dart';
 import '../../../vaccines/presentation/screens/register_vaccine_screen.dart';
-import '../../../vaccines/presentation/screens/vaccine_list_screen.dart';
 
 import '../../data/models/dashboard_summary.dart';
 import '../../data/repositories/dashboard_repository.dart';
 
+import '../../../lots/presentation/screens/lot_list_screen.dart';
+
+import '../../../milk_production/presentation/screens/milking_list_screen.dart';
+import '../../../milk_production/presentation/screens/register_milking_screen.dart';
+
+import '../../../milk_production/presentation/screens/monthly_production_screen.dart';
+import '../../../milk_production/presentation/screens/production_alerts_screen.dart';
+import '../../../vaccines/presentation/screens/health_screen.dart';
+import '../../../vaccines/presentation/screens/vaccine_alerts_screen.dart';
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -31,13 +40,19 @@ class _HomeScreenState extends State<HomeScreen> {
   DashboardSummary _summary = DashboardSummary.empty();
 
   bool _isLoading = true;
+
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+
     _loadDashboard();
   }
+
+  // =========================================================
+  // ABRIR FORMULARIO
+  // =========================================================
 
   Future<void> _openForm(
     Widget screen,
@@ -64,15 +79,22 @@ class _HomeScreenState extends State<HomeScreen> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(successMessage),
+          content: Text(
+            successMessage,
+          ),
         ),
       );
   }
+
+  // =========================================================
+  // CARGAR DASHBOARD
+  // =========================================================
 
   Future<void> _loadDashboard() async {
     if (mounted) {
       setState(() {
         _isLoading = true;
+
         _errorMessage = null;
       });
     }
@@ -86,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _summary = result;
+
         _isLoading = false;
       });
     } catch (error) {
@@ -95,12 +118,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         _errorMessage = error.toString();
+
         _isLoading = false;
       });
 
-      debugPrint('Error cargando dashboard: $error');
+      debugPrint(
+        'Error cargando dashboard: $error',
+      );
     }
   }
+
+  // =========================================================
+  // ABRIR PANTALLA
+  // =========================================================
 
   void _open(
     BuildContext context,
@@ -111,10 +141,16 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => screen,
       ),
-    ).then((_) {
-      _loadDashboard();
-    });
+    ).then(
+      (_) {
+        _loadDashboard();
+      },
+    );
   }
+
+  // =========================================================
+  // CERRAR SESIÓN
+  // =========================================================
 
   Future<void> _logout() async {
     await SessionManager.instance.clearSession();
@@ -132,6 +168,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // =========================================================
+  // NOMBRE DEL USUARIO
+  // =========================================================
+
   String get _firstName {
     final String? fullName = SessionManager.instance.currentUser?.fullName;
 
@@ -142,27 +182,41 @@ class _HomeScreenState extends State<HomeScreen> {
     return fullName.trim().split(' ').first;
   }
 
-  String _formatMoney(double value) {
-    final String amount = value.toStringAsFixed(2);
-    final List<String> parts = amount.split('.');
+  // =========================================================
+  // FORMATEAR LITROS
+  // =========================================================
 
-    final String integers = parts[0];
-    final String decimals = parts[1];
-
-    final StringBuffer result = StringBuffer();
-
-    for (int index = 0; index < integers.length; index++) {
-      final int position = integers.length - index;
-
-      result.write(integers[index]);
-
-      if (position > 1 && position % 3 == 1) {
-        result.write(',');
-      }
+  String _formatLiters(
+    double value,
+  ) {
+    if (value == value.roundToDouble()) {
+      return '${value.toStringAsFixed(0)} L';
     }
 
-    return '\$${result.toString()}.$decimals MXN';
+    return '${value.toStringAsFixed(1)} L';
   }
+
+  // =========================================================
+  // TEXTO DE LOTES
+  // =========================================================
+
+  String _lotsSubtitle(
+    List<String> lots,
+  ) {
+    if (lots.isEmpty) {
+      return 'Sin lotes asignados';
+    }
+
+    if (lots.length == 1) {
+      return lots.first;
+    }
+
+    return '${lots.length} lotes';
+  }
+
+  // =========================================================
+  // MENÚ DEL USUARIO
+  // =========================================================
 
   Future<void> _showUserMenu() async {
     final String? selected = await showMenu<String>(
@@ -186,7 +240,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(
+                height: 3,
+              ),
               Text(
                 SessionManager.instance.currentUser?.email ?? 'Sin correo',
                 style: const TextStyle(
@@ -202,8 +258,12 @@ class _HomeScreenState extends State<HomeScreen> {
           value: 'profile',
           child: ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.person_outline),
-            title: Text('Mi perfil'),
+            leading: Icon(
+              Icons.person_outline,
+            ),
+            title: Text(
+              'Mi perfil',
+            ),
           ),
         ),
         const PopupMenuItem<String>(
@@ -241,8 +301,353 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // =========================================================
+  // DETALLE GANADO REGISTRADO
+  // =========================================================
+
+  Future<void> _showRegisteredCattleDetail() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    FaIcon(
+                      FontAwesomeIcons.cow,
+                    ),
+                    SizedBox(
+                      width: 10,
+                    ),
+                    Text(
+                      'Ganado registrado',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(
+                  height: 20,
+                ),
+                _DetailRow(
+                  label: 'Total de animales',
+                  value: '${_summary.registeredCattle}',
+                ),
+                const Divider(
+                  height: 28,
+                ),
+                const Text(
+                  'Distribución por lote',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+                if (_summary.registeredCattleLots.isEmpty)
+                  const Text(
+                    'Todavía no hay lotes asignados.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                else
+                  ..._summary.registeredCattleLots.map(
+                    (String lot) {
+                      return Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: 6,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.grid_view_outlined,
+                              size: 18,
+                            ),
+                            const SizedBox(
+                              width: 8,
+                            ),
+                            Expanded(
+                              child: Text(
+                                lot,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                const SizedBox(
+                  height: 20,
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(
+                        sheetContext,
+                      );
+
+                      _open(
+                        context,
+                        const CattleListScreen(),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.list_alt,
+                    ),
+                    label: const Text(
+                      'Ver ganado',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // =========================================================
+  // DETALLE VACAS PRODUCIENDO
+  // =========================================================
+
+  Future<void> _showProductiveCattleDetail() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(
+                      Icons.water_drop_outlined,
+                    ),
+                    SizedBox(
+                      width: 10,
+                    ),
+                    Text(
+                      'Vacas produciendo',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(
+                  height: 20,
+                ),
+                _DetailRow(
+                  label: 'Vacas en producción',
+                  value: '${_summary.productiveCattle}',
+                ),
+                const Divider(
+                  height: 28,
+                ),
+                const Text(
+                  'Lotes con vacas en producción',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(
+                  height: 10,
+                ),
+                if (_summary.productiveCattleLots.isEmpty)
+                  const Text(
+                    'Todavía no hay información de lotes.',
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                    ),
+                  )
+                else
+                  ..._summary.productiveCattleLots.map(
+                    (String lot) {
+                      return Padding(
+                        padding: const EdgeInsets.only(
+                          bottom: 6,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.grid_view_outlined,
+                              size: 18,
+                            ),
+                            const SizedBox(
+                              width: 8,
+                            ),
+                            Expanded(
+                              child: Text(
+                                lot,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // =========================================================
+  // DETALLE PRODUCCIÓN DE HOY
+  // =========================================================
+
+  Future<void> _showTodayProductionDetail() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              20,
+              4,
+              20,
+              24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.water_drop_outlined,
+                    ),
+                    const SizedBox(
+                      width: 10,
+                    ),
+                    Expanded(
+                      child: Text(
+                        'Producción - ${_summary.todayLabel}',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(
+                  height: 20,
+                ),
+                _DetailRow(
+                  label: 'Producción total',
+                  value: _formatLiters(
+                    _summary.todayMilkProduction,
+                  ),
+                ),
+                const SizedBox(
+                  height: 8,
+                ),
+                _DetailRow(
+                  label: 'Vacas en producción',
+                  value: '${_summary.productiveCattle}',
+                ),
+                const SizedBox(
+                  height: 8,
+                ),
+                _DetailRow(
+                  label: 'Promedio por vaca',
+                  value: _formatLiters(
+                    _summary.averagePerCow,
+                  ),
+                ),
+                const Divider(
+                  height: 28,
+                ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(
+                        sheetContext,
+                      );
+
+                      _open(
+                        context,
+                        const MilkingListScreen(),
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.water_drop_outlined,
+                    ),
+                    label: const Text(
+                      'Ver producción',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // =========================================================
+  // DETALLE PRODUCCIÓN DEL MES
+  // =========================================================
+
+  // =========================================================
+  // ABRIR REGISTRO DE ORDEÑA
+  // =========================================================
+
+  Future<void> _openRegisterMilking() async {
+    final bool? saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const RegisterMilkingScreen(),
+      ),
+    );
+
+    if (saved == true && mounted) {
+      await _loadDashboard();
+    }
+  }
+
+  // =========================================================
+  // BUILD
+  // =========================================================
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('GANTEK'),
@@ -270,11 +675,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // =========================================================
+  // CUERPO
+  // =========================================================
+
   Widget _buildBody() {
     if (_isLoading) {
       return ListView(
         children: const [
-          SizedBox(height: 250),
+          SizedBox(
+            height: 250,
+          ),
           Center(
             child: CircularProgressIndicator(),
           ),
@@ -284,27 +695,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (_errorMessage != null) {
       return ListView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(
+          24,
+        ),
         children: [
-          const SizedBox(height: 130),
+          const SizedBox(
+            height: 130,
+          ),
           const Icon(
             Icons.error_outline,
             size: 64,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(
+            height: 16,
+          ),
           const Text(
             'No fue posible cargar el resumen.',
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(
+            height: 8,
+          ),
           Text(
             _errorMessage!,
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(
+            height: 20,
+          ),
           ElevatedButton.icon(
             onPressed: _loadDashboard,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(
+              Icons.refresh,
+            ),
             label: const Text(
               'Intentar nuevamente',
             ),
@@ -314,110 +737,155 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(
+        16,
+      ),
       children: [
+        // =====================================================
+        // SALUDO
+        // =====================================================
+
         Text(
           '¡Hola, $_firstName!',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
-        const SizedBox(height: 4),
+
+        const SizedBox(
+          height: 4,
+        ),
+
         Text(
-          'Resumen comercial',
+          'Resumen de producción',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
-        const SizedBox(height: 18),
+
+        const SizedBox(
+          height: 18,
+        ),
+
+        // =====================================================
+        // TARJETAS
+        // =====================================================
+
         GridView.count(
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.48,
+          childAspectRatio: 1.30,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           children: [
             SummaryCard(
               title: 'Ganado registrado',
               value: '${_summary.registeredCattle}',
+              subtitle: _lotsSubtitle(
+                _summary.registeredCattleLots,
+              ),
               icon: const FaIcon(
                 FontAwesomeIcons.cow,
               ),
+              onTap: _showRegisteredCattleDetail,
             ),
             SummaryCard(
-              title: 'Listos para venta',
-              value: '${_summary.availableCattle}',
-              icon: const Icon(
-                Icons.sell_outlined,
+              title: 'Vacas produciendo',
+              value: '${_summary.productiveCattle}',
+              subtitle: _lotsSubtitle(
+                _summary.productiveCattleLots,
               ),
-              iconColor: AppColors.gold,
-            ),
-            SummaryCard(
-              title: 'Publicados',
-              value: '${_summary.publishedCattle}',
               icon: const Icon(
-                Icons.campaign_outlined,
+                Icons.water_drop_outlined,
               ),
               iconColor: AppColors.info,
+              onTap: _showProductiveCattleDetail,
             ),
             SummaryCard(
-              title: 'Ventas del mes',
-              value: '${_summary.monthlySales}',
+              title: 'Producción hoy',
+              value: _formatLiters(
+                _summary.todayMilkProduction,
+              ),
+              subtitle: _summary.todayLabel,
               icon: const Icon(
-                Icons.point_of_sale,
+                Icons.water_drop,
               ),
               iconColor: AppColors.success,
+              onTap: _showTodayProductionDetail,
+            ),
+            SummaryCard(
+              title: 'Producción del mes',
+              value: _formatLiters(
+                _summary.monthlyMilkProduction,
+              ),
+              subtitle: _summary.monthLabel,
+              icon: const Icon(
+                Icons.bar_chart_outlined,
+              ),
+              iconColor: AppColors.gold,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const MonthlyProductionScreen(),
+                  ),
+                );
+              },
+            ),
+            SummaryCard(
+              title: 'Alertas de producción',
+              value: '${_summary.lowProductionAlerts}',
+              subtitle: 'Baja producción y tendencia',
+              icon: const Icon(
+                Icons.warning_amber_rounded,
+              ),
+              iconColor: AppColors.warning,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProductionAlertsScreen(),
+                  ),
+                );
+              },
+            ),
+            SummaryCard(
+              title: 'Alertas de vacunación',
+              value: '${_summary.upcomingVaccines + _summary.overdueVaccines}',
+              subtitle: '${_summary.upcomingVaccines} próximas · '
+                  '${_summary.overdueVaccines} vencidas',
+              icon: const Icon(
+                Icons.vaccines_outlined,
+              ),
+              iconColor: AppColors.warning,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const VaccineAlertsScreen(),
+                  ),
+                ).then((_) {
+                  _loadDashboard();
+                });
+              },
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.successSoft,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: AppColors.border,
-            ),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.trending_up,
-                color: AppColors.success,
-                size: 36,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Ingresos del mes',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _formatMoney(
-                        _summary.monthlyIncome,
-                      ),
-                      style: const TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primaryDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+
+        const SizedBox(
+          height: 24,
         ),
-        const SizedBox(height: 24),
+
+        // =====================================================
+        // ACCIONES RÁPIDAS
+        // =====================================================
+
         Text(
           'Acciones rápidas',
           style: Theme.of(context).textTheme.titleLarge,
         ),
-        const SizedBox(height: 12),
+
+        const SizedBox(
+          height: 12,
+        ),
+
         Row(
           children: [
             Expanded(
@@ -434,22 +902,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(
+              width: 10,
+            ),
             Expanded(
               child: _QuickAction(
                 icon: const Icon(
-                  Icons.point_of_sale_outlined,
+                  Icons.water_drop_outlined,
                 ),
-                label: 'Nueva\nventa',
-                onTap: () {
-                  _openForm(
-                    const RegisterSaleScreen(),
-                    'Venta registrada correctamente.',
-                  );
-                },
+                label: 'Registrar\nordeña',
+                onTap: _openRegisterMilking,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(
+              width: 10,
+            ),
             Expanded(
               child: _QuickAction(
                 icon: const Icon(
@@ -466,18 +933,30 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 26),
+
+        const SizedBox(
+          height: 26,
+        ),
+
+        // =====================================================
+        // ADMINISTRACIÓN
+        // =====================================================
+
         Text(
           'Administración',
           style: Theme.of(context).textTheme.titleLarge,
         ),
-        const SizedBox(height: 12),
+
+        const SizedBox(
+          height: 12,
+        ),
+
         _ModuleTile(
           icon: const FaIcon(
             FontAwesomeIcons.cow,
           ),
           title: 'Ganado',
-          subtitle: 'Consultar, actualizar y eliminar animales',
+          subtitle: 'Consultar, actualizar y administrar animales',
           onTap: () {
             _open(
               context,
@@ -485,41 +964,71 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-        const SizedBox(height: 10),
+
+        const SizedBox(
+          height: 10,
+        ),
+
         _ModuleTile(
           icon: const Icon(
-            Icons.point_of_sale,
+            Icons.grid_view_outlined,
           ),
-          title: 'Ventas',
-          subtitle: 'Consultar, actualizar y cancelar ventas',
+          title: 'Lotes',
+          subtitle: 'Organizar el ganado por lote',
           onTap: () {
             _open(
               context,
-              const SalesListScreen(),
+              const LotListScreen(),
             );
           },
         ),
-        const SizedBox(height: 10),
+
+        const SizedBox(
+          height: 10,
+        ),
+
         _ModuleTile(
           icon: const Icon(
-            Icons.vaccines_outlined,
+            Icons.water_drop_outlined,
           ),
-          title: 'Vacunas',
-          subtitle: 'Consultar, actualizar y eliminar vacunas',
+          title: 'Producción',
+          subtitle: 'Registrar y consultar producción de leche',
           onTap: () {
             _open(
               context,
-              const VaccineListScreen(),
+              const MilkingListScreen(),
             );
           },
         ),
-        const SizedBox(height: 10),
+
+        const SizedBox(
+          height: 10,
+        ),
+
+        _ModuleTile(
+          icon: const Icon(
+            Icons.health_and_safety_outlined,
+          ),
+          title: 'Sanidad',
+          subtitle: 'Vacunaciones y veterinarios',
+          onTap: () {
+            _open(
+              context,
+              const HealthScreen(),
+            );
+          },
+        ),
+
+        const SizedBox(
+          height: 10,
+        ),
+
         _ModuleTile(
           icon: const Icon(
             Icons.bar_chart,
           ),
           title: 'Reportes',
-          subtitle: 'Consultar indicadores',
+          subtitle: 'Consultar indicadores y producción',
           onTap: () {
             _open(
               context,
@@ -527,11 +1036,18 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           },
         ),
-        const SizedBox(height: 24),
+
+        const SizedBox(
+          height: 24,
+        ),
       ],
     );
   }
 }
+
+// ===========================================================
+// ACCIÓN RÁPIDA
+// ===========================================================
 
 class _QuickAction extends StatelessWidget {
   const _QuickAction({
@@ -541,20 +1057,30 @@ class _QuickAction extends StatelessWidget {
   });
 
   final Widget icon;
+
   final String label;
+
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(
+        12,
+      ),
       child: Container(
         height: 105,
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(
+          8,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(
+            12,
+          ),
           border: Border.all(
             color: AppColors.border,
           ),
@@ -569,11 +1095,15 @@ class _QuickAction extends StatelessWidget {
               ),
               child: icon,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(
+              height: 8,
+            ),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
             ),
@@ -584,6 +1114,10 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
+// ===========================================================
+// MÓDULO
+// ===========================================================
+
 class _ModuleTile extends StatelessWidget {
   const _ModuleTile({
     required this.icon,
@@ -593,12 +1127,17 @@ class _ModuleTile extends StatelessWidget {
   });
 
   final Widget icon;
+
   final String title;
+
   final String subtitle;
+
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Card(
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(
@@ -610,7 +1149,9 @@ class _ModuleTile extends StatelessWidget {
           height: 48,
           decoration: BoxDecoration(
             color: AppColors.primaryLight,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(
+              10,
+            ),
           ),
           child: Center(
             child: IconTheme(
@@ -628,12 +1169,53 @@ class _ModuleTile extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: Text(subtitle),
+        subtitle: Text(
+          subtitle,
+        ),
         trailing: const Icon(
           Icons.chevron_right,
         ),
         onTap: onTap,
       ),
+    );
+  }
+}
+
+// ===========================================================
+// FILA DE DETALLE
+// ===========================================================
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+
+  final String value;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
     );
   }
 }

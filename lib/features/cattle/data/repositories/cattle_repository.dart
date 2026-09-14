@@ -11,14 +11,39 @@ class CattleRepository {
     DatabaseHelper? databaseHelper,
   }) : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
+  // =========================================================
+  // OBTENER USUARIO ACTUAL
+  // =========================================================
+
+  int _requireUserId() {
+    final int? userId = SessionManager.instance.currentUserId;
+
+    if (userId == null) {
+      throw StateError(
+        'No hay una sesión de usuario activa.',
+      );
+    }
+
+    return userId;
+  }
+
+  // =========================================================
+  // REGISTRAR GANADO
+  // =========================================================
+
   Future<int> insertCattle(
     Cattle cattle,
   ) async {
+    final int userId = _requireUserId();
+
     final Database database = await _databaseHelper.database;
 
     final Map<String, dynamic> data = cattle.toMap();
 
     data.remove('id');
+
+    // Nunca confiamos en un userId recibido desde la UI.
+    data['user_id'] = userId;
 
     data['created_at'] = DateTime.now().toIso8601String();
 
@@ -29,14 +54,18 @@ class CattleRepository {
     );
   }
 
-  Future<List<Cattle>> getAllCattle() async {
-    final Database database = await _databaseHelper.database;
+  // =========================================================
+  // OBTENER TODO EL GANADO DEL USUARIO
+  // =========================================================
 
+  Future<List<Cattle>> getAllCattle() async {
     final int? userId = SessionManager.instance.currentUserId;
 
     if (userId == null) {
       return <Cattle>[];
     }
+
+    final Database database = await _databaseHelper.database;
 
     final List<Map<String, dynamic>> result = await database.query(
       DatabaseHelper.cattleTable,
@@ -48,16 +77,20 @@ class CattleRepository {
     return result.map(Cattle.fromMap).toList();
   }
 
+  // =========================================================
+  // OBTENER GANADO POR ID
+  // =========================================================
+
   Future<Cattle?> getCattleById(
     int id,
   ) async {
-    final Database database = await _databaseHelper.database;
-
     final int? userId = SessionManager.instance.currentUserId;
 
     if (userId == null) {
       return null;
     }
+
+    final Database database = await _databaseHelper.database;
 
     final List<Map<String, dynamic>> result = await database.query(
       DatabaseHelper.cattleTable,
@@ -78,32 +111,48 @@ class CattleRepository {
     );
   }
 
+  // =========================================================
+  // VERIFICAR SI EL CÓDIGO / ARETE YA EXISTE
+  // =========================================================
+
   Future<bool> codeExists(
-    String code,
-  ) async {
+    String code, {
+    int? excludeCattleId,
+  }) async {
+    final int userId = _requireUserId();
+
     final Database database = await _databaseHelper.database;
 
-    final int? userId = SessionManager.instance.currentUserId;
+    String where = 'user_id = ? AND code = ?';
 
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión de usuario activa.',
+    final List<Object?> whereArgs = [
+      userId,
+      code.trim(),
+    ];
+
+    // Cuando editamos una vaca, ignoramos su propio ID.
+    if (excludeCattleId != null) {
+      where += ' AND id != ?';
+
+      whereArgs.add(
+        excludeCattleId,
       );
     }
 
     final List<Map<String, dynamic>> result = await database.query(
       DatabaseHelper.cattleTable,
       columns: ['id'],
-      where: 'user_id = ? AND code = ?',
-      whereArgs: [
-        userId,
-        code.trim(),
-      ],
+      where: where,
+      whereArgs: whereArgs,
       limit: 1,
     );
 
     return result.isNotEmpty;
   }
+
+  // =========================================================
+  // ACTUALIZAR GANADO
+  // =========================================================
 
   Future<int> updateCattle(
     Cattle cattle,
@@ -114,19 +163,16 @@ class CattleRepository {
       );
     }
 
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión de usuario activa.',
-      );
-    }
+    final int userId = _requireUserId();
 
     final Database database = await _databaseHelper.database;
 
     final Map<String, dynamic> data = cattle.toMap();
 
     data.remove('id');
+
+    // Conservamos siempre el propietario real de la sesión.
+    data['user_id'] = userId;
 
     return database.update(
       DatabaseHelper.cattleTable,
@@ -139,7 +185,13 @@ class CattleRepository {
     );
   }
 
-  Future<int> deleteCattle(int id) async {
+  // =========================================================
+  // ELIMINAR GANADO
+  // =========================================================
+
+  Future<int> deleteCattle(
+    int id,
+  ) async {
     final int userId = _requireUserId();
 
     final Database database = await _databaseHelper.database;
@@ -154,46 +206,146 @@ class CattleRepository {
     );
   }
 
-  int _requireUserId() {
-    final int? userId = SessionManager.instance.currentUserId;
+  // =========================================================
+  // OBTENER GANADO ACTIVO
+  // =========================================================
 
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión activa.',
-      );
-    }
-
-    return userId;
-  }
-
-  Future<List<Cattle>> getAvailableCattle() async {
-    final Database database = await _databaseHelper.database;
-
+  Future<List<Cattle>> getActiveCattle() async {
     final int? userId = SessionManager.instance.currentUserId;
 
     if (userId == null) {
       return <Cattle>[];
     }
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT *
-      FROM ${DatabaseHelper.cattleTable}
-      WHERE user_id = ?
-        AND id NOT IN (
-          SELECT cattle_id
-          FROM ${DatabaseHelper.salesTable}
-          WHERE user_id = ?
-            AND status = 'completada'
-        )
-      ORDER BY created_at DESC
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> result = await database.query(
+      DatabaseHelper.cattleTable,
+      where: '''
+        user_id = ?
+        AND status = ?
       ''',
-      [
+      whereArgs: [
         userId,
-        userId,
+        'Activo',
       ],
+      orderBy: 'created_at DESC',
     );
 
     return result.map(Cattle.fromMap).toList();
+  }
+
+  // =========================================================
+  // OBTENER VACAS EN PRODUCCIÓN
+  // =========================================================
+
+  Future<List<Cattle>> getProductiveCattle() async {
+    final int? userId = SessionManager.instance.currentUserId;
+
+    if (userId == null) {
+      return <Cattle>[];
+    }
+
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> result = await database.query(
+      DatabaseHelper.cattleTable,
+      where: '''
+        user_id = ?
+        AND status = ?
+        AND productive_status = ?
+        AND sex = ?
+      ''',
+      whereArgs: [
+        userId,
+        'Activo',
+        'En producción',
+        'Hembra',
+      ],
+      orderBy: 'code ASC',
+    );
+
+    return result.map(Cattle.fromMap).toList();
+  }
+
+  // =========================================================
+  // OBTENER GANADO POR LOTE
+  // =========================================================
+
+  Future<List<Cattle>> getCattleByLot(
+    int lotId,
+  ) async {
+    final int userId = _requireUserId();
+
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> result = await database.query(
+      DatabaseHelper.cattleTable,
+      where: '''
+        user_id = ?
+        AND lot_id = ?
+      ''',
+      whereArgs: [
+        userId,
+        lotId,
+      ],
+      orderBy: 'code ASC',
+    );
+
+    return result.map(Cattle.fromMap).toList();
+  }
+
+  // =========================================================
+  // CONTAR GANADO
+  // =========================================================
+
+  Future<int> countCattle() async {
+    final int userId = _requireUserId();
+
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> result = await database.rawQuery(
+      '''
+      SELECT COUNT(*) AS total
+      FROM ${DatabaseHelper.cattleTable}
+      WHERE user_id = ?
+        AND status = 'Activo'
+      ''',
+      [userId],
+    );
+
+    if (result.isEmpty) {
+      return 0;
+    }
+
+    return (result.first['total'] as num?)?.toInt() ?? 0;
+  }
+
+  // =========================================================
+  // CONTAR VACAS EN PRODUCCIÓN
+  // =========================================================
+
+  Future<int> countProductiveCattle() async {
+    final int userId = _requireUserId();
+
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> result = await database.rawQuery(
+      '''
+      SELECT COUNT(*) AS total
+      FROM ${DatabaseHelper.cattleTable}
+      WHERE user_id = ?
+        AND status = 'Activo'
+        AND productive_status = 'En producción'
+        AND sex = 'Hembra'
+      ''',
+      [userId],
+    );
+
+    if (result.isEmpty) {
+      return 0;
+    }
+
+    return (result.first['total'] as num?)?.toInt() ?? 0;
   }
 }

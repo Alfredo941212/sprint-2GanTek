@@ -5,6 +5,9 @@ import 'package:gantek/core/session/session_manager.dart';
 
 import '../../data/models/report_summary.dart';
 import '../../data/repositories/report_repository.dart';
+import 'package:printing/printing.dart';
+
+import '../../data/services/report_pdf_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -15,6 +18,7 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final ReportRepository _repository = ReportRepository();
+  final ReportPdfService _pdfService = ReportPdfService();
 
   DateTimeRange? _selectedRange;
 
@@ -23,7 +27,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   ReportSummary _summary = ReportSummary.empty();
 
-  List<RecentSaleReport> _recentSales = <RecentSaleReport>[];
+  List<LotProductionReport> _lotProduction = <LotProductionReport>[];
+
+  List<RecentMilkingReport> _recentMilkings = <RecentMilkingReport>[];
 
   @override
   void initState() {
@@ -50,21 +56,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
         );
       }
 
-      debugPrint(
-        'Cargando reportes para user_id: $userId',
-      );
-
       final ReportSummary summary = await _repository.getSummary(
         userId: userId,
         startDate: _selectedRange?.start,
         endDate: _selectedRange?.end,
       );
 
-      final List<RecentSaleReport> recentSales =
-          await _repository.getRecentSales(
+      final List<LotProductionReport> lotProduction =
+          await _repository.getProductionByLot(
         userId: userId,
         startDate: _selectedRange?.start,
         endDate: _selectedRange?.end,
+      );
+
+      final List<RecentMilkingReport> recentMilkings =
+          await _repository.getRecentMilkings(
+        userId: userId,
+        startDate: _selectedRange?.start,
+        endDate: _selectedRange?.end,
+        limit: 10,
       );
 
       if (!mounted) {
@@ -73,7 +83,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
       setState(() {
         _summary = summary;
-        _recentSales = recentSales;
+        _lotProduction = lotProduction;
+        _recentMilkings = recentMilkings;
         _isLoading = false;
       });
     } catch (error, stackTrace) {
@@ -92,7 +103,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
       setState(() {
         _summary = ReportSummary.empty();
 
-        _recentSales = <RecentSaleReport>[];
+        _lotProduction = <LotProductionReport>[];
+
+        _recentMilkings = <RecentMilkingReport>[];
 
         _errorMessage = error.toString();
 
@@ -142,42 +155,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
         '${date.year}';
   }
 
-  String _formatMoney(
-    double value,
-  ) {
-    final String valueText = value.toStringAsFixed(2);
-
-    final List<String> parts = valueText.split('.');
-
-    final String integerPart = parts.first;
-
-    final String decimalPart = parts.last;
-
-    final StringBuffer formatted = StringBuffer();
-
-    for (int index = 0; index < integerPart.length; index++) {
-      final int positionFromEnd = integerPart.length - index;
-
-      formatted.write(
-        integerPart[index],
-      );
-
-      if (positionFromEnd > 1 && positionFromEnd % 3 == 1) {
-        formatted.write(',');
-      }
-    }
-
-    return '\$${formatted.toString()}.$decimalPart MXN';
-  }
-
   String get _periodText {
     if (_selectedRange == null) {
-      return 'Todos los registros';
+      return 'Mes actual';
     }
 
     return '${_formatDate(_selectedRange!.start)}'
         ' – '
         '${_formatDate(_selectedRange!.end)}';
+  }
+
+  Future<void> _generatePdf() async {
+    try {
+      final bytes = await _pdfService.generateReport(
+        summary: _summary,
+        lotProduction: _lotProduction,
+        recentMilkings: _recentMilkings,
+        periodText: _periodText,
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: 'reporte_gantek.pdf',
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No fue posible generar el PDF: $error',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -186,8 +199,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
   ) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reportes'),
+        title: const Text(
+          'Reportes',
+        ),
         actions: [
+          IconButton(
+            tooltip: 'Generar PDF',
+            onPressed: _isLoading ? null : _generatePdf,
+            icon: const Icon(
+              Icons.picture_as_pdf_outlined,
+            ),
+          ),
           IconButton(
             tooltip: 'Actualizar',
             onPressed: _isLoading ? null : _loadReports,
@@ -254,6 +276,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     return RefreshIndicator(
       onRefresh: _loadReports,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
           _PeriodCard(
@@ -262,103 +285,161 @@ class _ReportsScreenState extends State<ReportsScreen> {
             onSelectPeriod: _selectDateRange,
             onClearPeriod: _clearDateRange,
           ),
+
           const SizedBox(
-            height: 18,
+            height: 20,
           ),
+
+          // =================================================
+          // GANADO
+          // =================================================
+
           const _SectionTitle(
-            title: 'Resumen del animal',
+            title: 'Resumen del ganado',
             icon: Icons.pets,
           ),
+
           const SizedBox(
             height: 10,
           ),
+
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
                 title: 'Registrado',
                 value: '${_summary.totalCattle}',
-                description: 'Total de animales',
+                description: 'Animales activos',
                 icon: const FaIcon(
                   FontAwesomeIcons.cow,
                   size: 26,
                 ),
               ),
               _SummaryCard(
-                title: 'Disponible',
-                value: '${_summary.availableCattle}',
-                description: 'Animales no vendidos',
+                title: 'En producción',
+                value: '${_summary.productiveCattle}',
+                description: 'Vacas produciendo leche',
                 icon: const Icon(
-                  Icons.check_circle_outline,
+                  Icons.water_drop_outlined,
                 ),
               ),
               _SummaryCard(
-                title: 'Vendido',
-                value: '${_summary.soldCattle}',
-                description: 'Animales vendidos',
+                title: 'Secas',
+                value: '${_summary.dryCattle}',
+                description: 'Vacas fuera de producción',
                 icon: const Icon(
-                  Icons.sell_outlined,
+                  Icons.pause_circle_outline,
                 ),
               ),
             ],
           ),
+
           const SizedBox(
-            height: 22,
+            height: 24,
           ),
+
+          // =================================================
+          // PRODUCCIÓN
+          // =================================================
+
           const _SectionTitle(
-            title: 'Resumen de ventas',
-            icon: Icons.point_of_sale,
+            title: 'Producción de leche',
+            icon: Icons.water_drop_outlined,
           ),
+
           const SizedBox(
             height: 10,
           ),
+
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
-                title: 'Ventas',
-                value: '${_summary.completedSales}',
-                description: 'Ventas completadas',
+                title: 'Producción total',
+                value: '${_summary.totalMilkProduction.toStringAsFixed(1)} L',
+                description: 'Litros del periodo',
                 icon: const Icon(
-                  Icons.receipt_long_outlined,
+                  Icons.water_drop,
                 ),
               ),
               _SummaryCard(
-                title: 'Ingresos',
-                value: _formatMoney(
-                  _summary.totalSalesAmount,
-                ),
-                description: 'Monto total vendido',
+                title: 'Promedio diario',
+                value:
+                    '${_summary.averageDailyProduction.toStringAsFixed(1)} L',
+                description: 'Promedio por día con producción',
                 icon: const Icon(
-                  Icons.attach_money,
-                ),
-              ),
-              _SummaryCard(
-                title: 'Peso vendido',
-                value: '${_summary.totalSoldWeight.toStringAsFixed(1)} kg',
-                description: 'Peso acumulado',
-                icon: const Icon(
-                  Icons.monitor_weight_outlined,
+                  Icons.calendar_today_outlined,
                 ),
               ),
               _SummaryCard(
-                title: 'Precio promedio',
-                value: '\$${_summary.averagePricePerKg.toStringAsFixed(2)}',
-                description: 'Promedio por kilogramo',
+                title: 'Promedio por vaca',
+                value:
+                    '${_summary.averageProductionPerCow.toStringAsFixed(1)} L',
+                description: 'Producción promedio',
+                icon: const FaIcon(
+                  FontAwesomeIcons.cow,
+                  size: 24,
+                ),
+              ),
+              _SummaryCard(
+                title: 'Ordeñas',
+                value: '${_summary.totalMilkings}',
+                description: 'Registros de ordeña',
                 icon: const Icon(
-                  Icons.trending_up,
+                  Icons.format_list_numbered,
                 ),
               ),
             ],
           ),
+
           const SizedBox(
-            height: 22,
+            height: 24,
           ),
+
+          // =================================================
+          // PRODUCCIÓN POR LOTE
+          // =================================================
+
+          const _SectionTitle(
+            title: 'Producción por lote',
+            icon: Icons.grid_view_outlined,
+          ),
+
+          const SizedBox(
+            height: 10,
+          ),
+
+          if (_lotProduction.isEmpty)
+            const _EmptyCard(
+              icon: Icons.grid_view_outlined,
+              message: 'No hay lotes registrados.',
+            )
+          else
+            ..._lotProduction.map(
+              (
+                LotProductionReport lot,
+              ) {
+                return _LotProductionCard(
+                  lot: lot,
+                );
+              },
+            ),
+
+          const SizedBox(
+            height: 24,
+          ),
+
+          // =================================================
+          // SANIDAD
+          // =================================================
+
           const _SectionTitle(
             title: 'Control sanitario',
             icon: Icons.vaccines_outlined,
           ),
+
           const SizedBox(
             height: 10,
           ),
+
           _ResponsiveSummaryGrid(
             children: [
               _SummaryCard(
@@ -372,7 +453,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               _SummaryCard(
                 title: 'Próximas',
                 value: '${_summary.upcomingVaccines}',
-                description: 'En los próximos 30 días',
+                description: 'Próximos 30 días',
                 icon: const Icon(
                   Icons.event_available_outlined,
                 ),
@@ -382,35 +463,86 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 value: '${_summary.overdueVaccines}',
                 description: 'Requieren atención',
                 icon: const Icon(
-                  Icons.warning_amber,
+                  Icons.warning_amber_rounded,
                 ),
               ),
             ],
           ),
+
           const SizedBox(
             height: 24,
           ),
+
+          // =================================================
+          // ALERTAS
+          // =================================================
+
           const _SectionTitle(
-            title: 'Ventas recientes',
-            icon: Icons.history,
+            title: 'Alertas',
+            icon: Icons.notifications_active_outlined,
           ),
+
           const SizedBox(
             height: 10,
           ),
-          if (_recentSales.isEmpty)
-            const _EmptySalesCard()
+
+          _ResponsiveSummaryGrid(
+            children: [
+              _SummaryCard(
+                title: 'Baja producción',
+                value: '${_summary.lowProductionAlerts}',
+                description: 'Vacas debajo del mínimo',
+                icon: const Icon(
+                  Icons.trending_down,
+                ),
+              ),
+              _SummaryCard(
+                title: 'Alertas sanitarias',
+                value:
+                    '${_summary.upcomingVaccines + _summary.overdueVaccines}',
+                description: '${_summary.upcomingVaccines} próximas · '
+                    '${_summary.overdueVaccines} vencidas',
+                icon: const Icon(
+                  Icons.health_and_safety_outlined,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(
+            height: 24,
+          ),
+
+          // =================================================
+          // ORDEÑAS RECIENTES
+          // =================================================
+
+          const _SectionTitle(
+            title: 'Ordeñas recientes',
+            icon: Icons.history,
+          ),
+
+          const SizedBox(
+            height: 10,
+          ),
+
+          if (_recentMilkings.isEmpty)
+            const _EmptyCard(
+              icon: Icons.water_drop_outlined,
+              message: 'No hay ordeñas registradas en el periodo.',
+            )
           else
-            ..._recentSales.map(
+            ..._recentMilkings.map(
               (
-                RecentSaleReport sale,
+                RecentMilkingReport milking,
               ) {
-                return _RecentSaleCard(
-                  sale: sale,
+                return _RecentMilkingCard(
+                  milking: milking,
                   formatDate: _formatDate,
-                  formatMoney: _formatMoney,
                 );
               },
             ),
+
           const SizedBox(
             height: 30,
           ),
@@ -419,6 +551,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
     );
   }
 }
+
+// ===========================================================
+// PERIODO
+// ===========================================================
 
 class _PeriodCard extends StatelessWidget {
   const _PeriodCard({
@@ -463,7 +599,9 @@ class _PeriodCard extends StatelessWidget {
                   const SizedBox(
                     height: 4,
                   ),
-                  Text(periodText),
+                  Text(
+                    periodText,
+                  ),
                 ],
               ),
             ),
@@ -489,6 +627,10 @@ class _PeriodCard extends StatelessWidget {
   }
 }
 
+// ===========================================================
+// TÍTULO
+// ===========================================================
+
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({
     required this.title,
@@ -504,18 +646,26 @@ class _SectionTitle extends StatelessWidget {
   ) {
     return Row(
       children: [
-        Icon(icon),
+        Icon(
+          icon,
+        ),
         const SizedBox(
           width: 8,
         ),
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge,
+        Expanded(
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
         ),
       ],
     );
   }
 }
+
+// ===========================================================
+// GRID
+// ===========================================================
 
 class _ResponsiveSummaryGrid extends StatelessWidget {
   const _ResponsiveSummaryGrid({
@@ -556,6 +706,10 @@ class _ResponsiveSummaryGrid extends StatelessWidget {
     );
   }
 }
+
+// ===========================================================
+// TARJETA DE RESUMEN
+// ===========================================================
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
@@ -615,21 +769,16 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _RecentSaleCard extends StatelessWidget {
-  const _RecentSaleCard({
-    required this.sale,
-    required this.formatDate,
-    required this.formatMoney,
+// ===========================================================
+// PRODUCCIÓN POR LOTE
+// ===========================================================
+
+class _LotProductionCard extends StatelessWidget {
+  const _LotProductionCard({
+    required this.lot,
   });
 
-  final RecentSaleReport sale;
-  final String Function(
-    DateTime,
-  ) formatDate;
-
-  final String Function(
-    double,
-  ) formatMoney;
+  final LotProductionReport lot;
 
   @override
   Widget build(
@@ -640,58 +789,129 @@ class _RecentSaleCard extends StatelessWidget {
         bottom: 10,
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.all(14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 8,
+        ),
         leading: const CircleAvatar(
           child: Icon(
-            Icons.sell_outlined,
+            Icons.grid_view_outlined,
           ),
         ),
         title: Text(
-          'Arete ${sale.cattleCode}',
+          lot.lotName,
           style: const TextStyle(
             fontWeight: FontWeight.bold,
           ),
         ),
-        subtitle: Text(
-          'Comprador: ${sale.buyerName}\n'
-          'Fecha: ${formatDate(sale.saleDate)}\n'
-          '${sale.saleWeight.toStringAsFixed(1)} kg × '
-          '\$${sale.pricePerKg.toStringAsFixed(2)}',
+        subtitle: const Text(
+          'Producción acumulada',
         ),
-        isThreeLine: true,
         trailing: Text(
-          formatMoney(sale.total),
-          textAlign: TextAlign.end,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
+          '${lot.totalLiters.toStringAsFixed(1)} L',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
         ),
       ),
     );
   }
 }
 
-class _EmptySalesCard extends StatelessWidget {
-  const _EmptySalesCard();
+// ===========================================================
+// ORDEÑA RECIENTE
+// ===========================================================
+
+class _RecentMilkingCard extends StatelessWidget {
+  const _RecentMilkingCard({
+    required this.milking,
+    required this.formatDate,
+  });
+
+  final RecentMilkingReport milking;
+
+  final String Function(
+    DateTime,
+  ) formatDate;
 
   @override
   Widget build(
     BuildContext context,
   ) {
-    return const Card(
+    final String cattleTitle = milking.cattleName?.trim().isNotEmpty == true
+        ? '${milking.cattleName} · '
+            'Arete ${milking.cattleCode}'
+        : 'Arete ${milking.cattleCode}';
+
+    final String shift =
+        milking.shift?.trim().isNotEmpty == true ? milking.shift! : 'Sin turno';
+
+    return Card(
+      margin: const EdgeInsets.only(
+        bottom: 10,
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(14),
+        leading: const CircleAvatar(
+          child: Icon(
+            Icons.water_drop_outlined,
+          ),
+        ),
+        title: Text(
+          cattleTitle,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          '${milking.lotName}\n'
+          '${formatDate(milking.date)} · '
+          '$shift · '
+          'Ordeña ${milking.milkingNumber}',
+        ),
+        isThreeLine: true,
+        trailing: Text(
+          '${milking.liters.toStringAsFixed(1)} L',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+        ),
+      ),
+    );
+  }
+}
+
+// ===========================================================
+// VACÍO
+// ===========================================================
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({
+    required this.icon,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) {
+    return Card(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           children: [
             Icon(
-              Icons.receipt_long_outlined,
-              size: 52,
+              icon,
+              size: 48,
             ),
-            SizedBox(
+            const SizedBox(
               height: 12,
             ),
             Text(
-              'No hay ventas registradas en el periodo seleccionado.',
+              message,
               textAlign: TextAlign.center,
             ),
           ],

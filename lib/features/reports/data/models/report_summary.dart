@@ -1,81 +1,123 @@
 class ReportSummary {
   final int totalCattle;
-  final int availableCattle;
-  final int soldCattle;
 
-  final int completedSales;
-  final double totalSalesAmount;
-  final double totalSoldWeight;
-  final double averagePricePerKg;
+  final int productiveCattle;
+
+  final int dryCattle;
+
+  final double totalMilkProduction;
+
+  final double averageDailyProduction;
+
+  final double averageProductionPerCow;
+
+  final int totalMilkings;
 
   final int appliedVaccines;
+
   final int upcomingVaccines;
+
   final int overdueVaccines;
+
+  final int lowProductionAlerts;
 
   const ReportSummary({
     required this.totalCattle,
-    required this.availableCattle,
-    required this.soldCattle,
-    required this.completedSales,
-    required this.totalSalesAmount,
-    required this.totalSoldWeight,
-    required this.averagePricePerKg,
+    required this.productiveCattle,
+    required this.dryCattle,
+    required this.totalMilkProduction,
+    required this.averageDailyProduction,
+    required this.averageProductionPerCow,
+    required this.totalMilkings,
     required this.appliedVaccines,
     required this.upcomingVaccines,
     required this.overdueVaccines,
+    required this.lowProductionAlerts,
   });
 
   factory ReportSummary.empty() {
     return const ReportSummary(
       totalCattle: 0,
-      availableCattle: 0,
-      soldCattle: 0,
-      completedSales: 0,
-      totalSalesAmount: 0,
-      totalSoldWeight: 0,
-      averagePricePerKg: 0,
+      productiveCattle: 0,
+      dryCattle: 0,
+      totalMilkProduction: 0,
+      averageDailyProduction: 0,
+      averageProductionPerCow: 0,
+      totalMilkings: 0,
       appliedVaccines: 0,
       upcomingVaccines: 0,
       overdueVaccines: 0,
+      lowProductionAlerts: 0,
     );
   }
 }
 
-class RecentSaleReport {
-  final int id;
-  final String cattleCode;
-  final String buyerName;
-  final DateTime saleDate;
-  final double saleWeight;
-  final double pricePerKg;
-  final double total;
-  final String status;
+class LotProductionReport {
+  final int lotId;
 
-  const RecentSaleReport({
-    required this.id,
-    required this.cattleCode,
-    required this.buyerName,
-    required this.saleDate,
-    required this.saleWeight,
-    required this.pricePerKg,
-    required this.total,
-    required this.status,
+  final String lotName;
+
+  final double totalLiters;
+
+  const LotProductionReport({
+    required this.lotId,
+    required this.lotName,
+    required this.totalLiters,
   });
 
-  factory RecentSaleReport.fromMap(
+  factory LotProductionReport.fromMap(
     Map<String, dynamic> map,
   ) {
-    return RecentSaleReport(
-      id: (map['id'] as num).toInt() ?? 0,
+    return LotProductionReport(
+      lotId: (map['lot_id'] as num?)?.toInt() ?? 0,
+      lotName: map['lot_name'] as String? ?? 'Sin lote',
+      totalLiters: (map['total_liters'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+class RecentMilkingReport {
+  final int id;
+
+  final String cattleCode;
+
+  final String? cattleName;
+
+  final String lotName;
+
+  final DateTime date;
+
+  final int milkingNumber;
+
+  final String? shift;
+
+  final double liters;
+
+  const RecentMilkingReport({
+    required this.id,
+    required this.cattleCode,
+    required this.cattleName,
+    required this.lotName,
+    required this.date,
+    required this.milkingNumber,
+    required this.shift,
+    required this.liters,
+  });
+
+  factory RecentMilkingReport.fromMap(
+    Map<String, dynamic> map,
+  ) {
+    return RecentMilkingReport(
+      id: (map['id'] as num?)?.toInt() ?? 0,
       cattleCode: map['cattle_code'] as String? ?? '',
-      buyerName: map['buyer_name'] as String? ?? '',
-      saleDate: DateTime.parse(
-        map['sale_date'] as String,
+      cattleName: map['cattle_name'] as String?,
+      lotName: map['lot_name'] as String? ?? 'Sin lote',
+      date: DateTime.parse(
+        map['date'] as String,
       ),
-      saleWeight: (map['sale_weight'] as num?)?.toDouble() ?? 0,
-      pricePerKg: (map['price_per_kg'] as num?)?.toDouble() ?? 0,
-      total: (map['total'] as num?)?.toDouble() ?? 0,
-      status: map['status'] as String? ?? '',
+      milkingNumber: (map['milking_number'] as num?)?.toInt() ?? 0,
+      shift: map['shift'] as String?,
+      liters: (map['liters'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

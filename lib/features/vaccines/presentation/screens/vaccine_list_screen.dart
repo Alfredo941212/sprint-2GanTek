@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/models/vaccine_record.dart';
 import '../../data/repositories/vaccine_repository.dart';
 import 'register_vaccine_screen.dart';
+import 'vaccine_detail_screen.dart';
 
 class VaccineListScreen extends StatefulWidget {
   const VaccineListScreen({super.key});
@@ -85,7 +86,26 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
     }
   }
 
-  Future<void> _openEditVaccine(
+  Future<void> _openVaccineDetail(
+    VaccineRecord vaccine,
+  ) async {
+    final bool? changed = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VaccineDetailScreen(
+          vaccine: vaccine,
+        ),
+      ),
+    );
+
+    if (changed != true || !mounted) {
+      return;
+    }
+
+    setState(_loadVaccines);
+  }
+
+  /*Future<void> _openEditVaccine(
     VaccineRecord vaccine,
   ) async {
     final bool? updated = await Navigator.push<bool>(
@@ -116,7 +136,7 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
           ),
         ),
       );
-  }
+  }*/
 
   Future<void> _deleteVaccine(
     VaccineRecord vaccine,
@@ -272,7 +292,7 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(14),
                     onTap: () {
-                      _openEditVaccine(vaccine);
+                      _openVaccineDetail(vaccine);
                     },
                     child: Padding(
                       padding: const EdgeInsets.all(14),
