@@ -17,147 +17,206 @@ class ReportRepository {
   }) async {
     final Database database = await _databaseHelper.database;
 
-    /*
-     * GANADO
-     */
+    // =======================================================
+    // RANGO DE FECHAS
+    // =======================================================
+
+    final DateTime now = DateTime.now();
+
+    final DateTime defaultStart = DateTime(
+      now.year,
+      now.month,
+      1,
+    );
+
+    final DateTime defaultEnd = DateTime(
+      now.year,
+      now.month + 1,
+      1,
+    ).subtract(
+      const Duration(days: 1),
+    );
+
+    final DateTime normalizedStart = DateTime(
+      (startDate ?? defaultStart).year,
+      (startDate ?? defaultStart).month,
+      (startDate ?? defaultStart).day,
+    );
+
+    final DateTime normalizedEnd = DateTime(
+      (endDate ?? defaultEnd).year,
+      (endDate ?? defaultEnd).month,
+      (endDate ?? defaultEnd).day,
+    );
+
+    final String startDateText = _formatDate(
+      normalizedStart,
+    );
+
+    final String endDateText = _formatDate(
+      normalizedEnd,
+    );
+
+    // =======================================================
+    // GANADO TOTAL
+    // =======================================================
 
     final int totalCattle = Sqflite.firstIntValue(
           await database.rawQuery(
             '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.cattleTable}
-                WHERE user_id = ?
-                ''',
-            [userId],
-          ),
-        ) ??
-        0;
-
-    final int soldCattle = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-            SELECT COUNT(DISTINCT cattle_id)
-            FROM ${DatabaseHelper.salesTable}
+            SELECT COUNT(*)
+            FROM ${DatabaseHelper.cattleTable}
             WHERE user_id = ?
-              AND status = ?
+              AND status = 'Activo'
             ''',
             [
               userId,
-              'completada',
             ],
           ),
         ) ??
         0;
 
-    final int availableCattle = totalCattle - soldCattle;
+    // =======================================================
+    // VACAS EN PRODUCCIÓN
+    // =======================================================
 
-    /*
-     * VENTAS
-     */
-
-    final List<String> saleConditions = [
-      'user_id = ?',
-      'status = ?',
-    ];
-
-    final List<Object?> saleArguments = [
-      userId,
-      'completada',
-    ];
-
-    if (startDate != null) {
-      final DateTime normalizedStart = DateTime(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-      );
-
-      saleConditions.add(
-        'sale_date >= ?',
-      );
-
-      saleArguments.add(
-        normalizedStart.toIso8601String(),
-      );
-    }
-
-    if (endDate != null) {
-      final DateTime normalizedEnd = DateTime(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-        23,
-        59,
-        59,
-        999,
-      );
-
-      saleConditions.add(
-        'sale_date <= ?',
-      );
-
-      saleArguments.add(
-        normalizedEnd.toIso8601String(),
-      );
-    }
-
-    final String saleWhere = saleConditions.join(' AND ');
-
-    final int completedSales = Sqflite.firstIntValue(
+    final int productiveCattle = Sqflite.firstIntValue(
           await database.rawQuery(
             '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.salesTable}
-                WHERE $saleWhere
-                ''',
-            saleArguments,
+            SELECT COUNT(*)
+            FROM ${DatabaseHelper.cattleTable}
+            WHERE user_id = ?
+              AND status = 'Activo'
+              AND sex = 'Hembra'
+              AND productive_status = 'En producción'
+            ''',
+            [
+              userId,
+            ],
           ),
         ) ??
         0;
 
-    final List<Map<String, dynamic>> salesResult = await database.rawQuery(
+    // =======================================================
+    // VACAS SECAS
+    // =======================================================
+
+    final int dryCattle = Sqflite.firstIntValue(
+          await database.rawQuery(
+            '''
+            SELECT COUNT(*)
+            FROM ${DatabaseHelper.cattleTable}
+            WHERE user_id = ?
+              AND status = 'Activo'
+              AND sex = 'Hembra'
+              AND productive_status = 'Seca'
+            ''',
+            [
+              userId,
+            ],
+          ),
+        ) ??
+        0;
+
+    // =======================================================
+    // PRODUCCIÓN DE LECHE DEL PERIODO
+    // =======================================================
+
+    final List<Map<String, dynamic>> milkResult = await database.rawQuery(
       '''
       SELECT
-        COALESCE(SUM(total), 0)
-            AS total_sales_amount,
-        COALESCE(SUM(sale_weight), 0)
-            AS total_sold_weight,
-        COALESCE(AVG(price_per_kg), 0)
-            AS average_price_per_kg
-      FROM ${DatabaseHelper.salesTable}
-      WHERE $saleWhere
+        COALESCE(
+          SUM(liters),
+          0
+        ) AS total_liters,
+        COUNT(*) AS total_milkings,
+        COUNT(
+          DISTINCT date
+        ) AS production_days
+      FROM ${DatabaseHelper.milkingRecordsTable}
+      WHERE user_id = ?
+        AND date >= ?
+        AND date <= ?
       ''',
-      saleArguments,
+      [
+        userId,
+        startDateText,
+        endDateText,
+      ],
     );
 
-    final Map<String, dynamic> salesData = salesResult.first;
+    final Map<String, dynamic> milkData = milkResult.first;
 
-    final double totalSalesAmount =
-        (salesData['total_sales_amount'] as num?)?.toDouble() ?? 0;
+    final double totalMilkProduction =
+        (milkData['total_liters'] as num?)?.toDouble() ?? 0.0;
 
-    final double totalSoldWeight =
-        (salesData['total_sold_weight'] as num?)?.toDouble() ?? 0;
+    final int totalMilkings =
+        (milkData['total_milkings'] as num?)?.toInt() ?? 0;
 
-    final double averagePricePerKg =
-        (salesData['average_price_per_kg'] as num?)?.toDouble() ?? 0;
+    final int productionDays =
+        (milkData['production_days'] as num?)?.toInt() ?? 0;
 
-    /*
-     * VACUNAS
-     */
+    // =======================================================
+    // PROMEDIO DIARIO
+    // =======================================================
+
+    final double averageDailyProduction =
+        productionDays > 0 ? totalMilkProduction / productionDays : 0.0;
+
+    // =======================================================
+    // PROMEDIO POR VACA
+    // =======================================================
+
+    final double averageProductionPerCow =
+        productiveCattle > 0 ? totalMilkProduction / productiveCattle : 0.0;
+
+    // =======================================================
+    // VACUNAS APLICADAS
+    // =======================================================
+
+    final List<String> vaccineConditions = [
+      'user_id = ?',
+    ];
+
+    final List<Object?> vaccineArguments = [
+      userId,
+    ];
+
+    if (startDate != null) {
+      vaccineConditions.add(
+        'application_date >= ?',
+      );
+
+      vaccineArguments.add(
+        startDateText,
+      );
+    }
+
+    if (endDate != null) {
+      vaccineConditions.add(
+        'application_date <= ?',
+      );
+
+      vaccineArguments.add(
+        endDateText,
+      );
+    }
 
     final int appliedVaccines = Sqflite.firstIntValue(
           await database.rawQuery(
             '''
                 SELECT COUNT(*)
                 FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
+                WHERE ${vaccineConditions.join(' AND ')}
                 ''',
-            [userId],
+            vaccineArguments,
           ),
         ) ??
         0;
 
-    final DateTime now = DateTime.now();
+    // =======================================================
+    // VACUNAS PRÓXIMAS Y VENCIDAS
+    // =======================================================
 
     final DateTime today = DateTime(
       now.year,
@@ -166,7 +225,17 @@ class ReportRepository {
     );
 
     final DateTime nextThirtyDays = today.add(
-      const Duration(days: 30),
+      const Duration(
+        days: 30,
+      ),
+    );
+
+    final String todayText = _formatDate(
+      today,
+    );
+
+    final String nextThirtyDaysText = _formatDate(
+      nextThirtyDays,
     );
 
     final int upcomingVaccines = Sqflite.firstIntValue(
@@ -181,8 +250,8 @@ class ReportRepository {
                 ''',
             [
               userId,
-              today.toIso8601String(),
-              nextThirtyDays.toIso8601String(),
+              todayText,
+              nextThirtyDaysText,
             ],
           ),
         ) ??
@@ -199,42 +268,188 @@ class ReportRepository {
                 ''',
             [
               userId,
-              today.toIso8601String(),
+              todayText,
             ],
           ),
         ) ??
         0;
 
+    // =======================================================
+    // ALERTAS DE BAJA PRODUCCIÓN
+    // =======================================================
+
+    final List<Map<String, dynamic>> lowProductionResult =
+        await database.rawQuery(
+      '''
+      SELECT COUNT(*) AS total
+      FROM (
+        SELECT
+          c.id
+        FROM ${DatabaseHelper.cattleTable} c
+
+        LEFT JOIN ${DatabaseHelper.milkingRecordsTable} m
+          ON m.cattle_id = c.id
+          AND m.user_id = c.user_id
+          AND m.date >= ?
+          AND m.date <= ?
+
+        WHERE c.user_id = ?
+          AND c.status = 'Activo'
+          AND c.sex = 'Hembra'
+          AND c.productive_status = 'En producción'
+
+        GROUP BY
+          c.id,
+          c.minimum_daily_production
+
+        HAVING
+          COALESCE(
+            SUM(m.liters),
+            0
+          ) <
+          (
+            c.minimum_daily_production *
+            (
+              JULIANDAY(?) -
+              JULIANDAY(?) +
+              1
+            )
+          )
+      )
+      ''',
+      [
+        startDateText,
+        endDateText,
+        userId,
+        endDateText,
+        startDateText,
+      ],
+    );
+
+    final int lowProductionAlerts =
+        (lowProductionResult.first['total'] as num?)?.toInt() ?? 0;
+
     return ReportSummary(
       totalCattle: totalCattle,
-      availableCattle: availableCattle,
-      soldCattle: soldCattle,
-      completedSales: completedSales,
-      totalSalesAmount: totalSalesAmount,
-      totalSoldWeight: totalSoldWeight,
-      averagePricePerKg: averagePricePerKg,
+      productiveCattle: productiveCattle,
+      dryCattle: dryCattle,
+      totalMilkProduction: totalMilkProduction,
+      averageDailyProduction: averageDailyProduction,
+      averageProductionPerCow: averageProductionPerCow,
+      totalMilkings: totalMilkings,
       appliedVaccines: appliedVaccines,
       upcomingVaccines: upcomingVaccines,
       overdueVaccines: overdueVaccines,
+      lowProductionAlerts: lowProductionAlerts,
     );
   }
 
-  Future<List<RecentSaleReport>> getRecentSales({
+  // =========================================================
+  // PRODUCCIÓN POR LOTE
+  // =========================================================
+
+  Future<List<LotProductionReport>> getProductionByLot({
     required int userId,
     DateTime? startDate,
     DateTime? endDate,
-    int limit = 5,
+  }) async {
+    final Database database = await _databaseHelper.database;
+
+    final DateTime now = DateTime.now();
+
+    final DateTime defaultStart = DateTime(
+      now.year,
+      now.month,
+      1,
+    );
+
+    final DateTime defaultEnd = DateTime(
+      now.year,
+      now.month + 1,
+      1,
+    ).subtract(
+      const Duration(
+        days: 1,
+      ),
+    );
+
+    final DateTime normalizedStart = DateTime(
+      (startDate ?? defaultStart).year,
+      (startDate ?? defaultStart).month,
+      (startDate ?? defaultStart).day,
+    );
+
+    final DateTime normalizedEnd = DateTime(
+      (endDate ?? defaultEnd).year,
+      (endDate ?? defaultEnd).month,
+      (endDate ?? defaultEnd).day,
+    );
+
+    final List<Map<String, dynamic>> result = await database.rawQuery(
+      '''
+      SELECT
+        l.id AS lot_id,
+        l.name AS lot_name,
+        COALESCE(
+          SUM(m.liters),
+          0
+        ) AS total_liters
+      FROM ${DatabaseHelper.lotsTable} l
+
+      LEFT JOIN ${DatabaseHelper.milkingRecordsTable} m
+        ON m.historical_lot_id = l.id
+        AND m.user_id = ?
+        AND m.date >= ?
+        AND m.date <= ?
+
+      WHERE l.user_id = ?
+        AND l.status = 'Activo'
+
+      GROUP BY
+        l.id,
+        l.name
+
+      ORDER BY
+        total_liters DESC,
+        l.name ASC
+      ''',
+      [
+        userId,
+        _formatDate(
+          normalizedStart,
+        ),
+        _formatDate(
+          normalizedEnd,
+        ),
+        userId,
+      ],
+    );
+
+    return result
+        .map(
+          LotProductionReport.fromMap,
+        )
+        .toList();
+  }
+
+  // =========================================================
+  // ORDEÑAS RECIENTES
+  // =========================================================
+
+  Future<List<RecentMilkingReport>> getRecentMilkings({
+    required int userId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 10,
   }) async {
     final Database database = await _databaseHelper.database;
 
     final List<String> conditions = [
-      'user_id = ?',
-      'status = ?',
+      'm.user_id = ?',
     ];
 
     final List<Object?> arguments = [
       userId,
-      'completada',
     ];
 
     if (startDate != null) {
@@ -245,11 +460,13 @@ class ReportRepository {
       );
 
       conditions.add(
-        'sale_date >= ?',
+        'm.date >= ?',
       );
 
       arguments.add(
-        normalizedStart.toIso8601String(),
+        _formatDate(
+          normalizedStart,
+        ),
       );
     }
 
@@ -258,33 +475,77 @@ class ReportRepository {
         endDate.year,
         endDate.month,
         endDate.day,
-        23,
-        59,
-        59,
-        999,
       );
 
       conditions.add(
-        'sale_date <= ?',
+        'm.date <= ?',
       );
 
       arguments.add(
-        normalizedEnd.toIso8601String(),
+        _formatDate(
+          normalizedEnd,
+        ),
       );
     }
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.salesTable,
-      where: conditions.join(' AND '),
-      whereArgs: arguments,
-      orderBy: 'sale_date DESC',
-      limit: limit,
+    final List<Map<String, dynamic>> result = await database.rawQuery(
+      '''
+      SELECT
+        m.id,
+        c.code AS cattle_code,
+        c.name AS cattle_name,
+        COALESCE(
+          l.name,
+          'Sin lote'
+        ) AS lot_name,
+        m.date,
+        m.milking_number,
+        m.shift,
+        m.liters
+      FROM ${DatabaseHelper.milkingRecordsTable} m
+
+      INNER JOIN ${DatabaseHelper.cattleTable} c
+        ON c.id = m.cattle_id
+
+      LEFT JOIN ${DatabaseHelper.lotsTable} l
+        ON l.id = m.historical_lot_id
+
+      WHERE ${conditions.join(' AND ')}
+
+      ORDER BY
+        m.date DESC,
+        m.milking_number DESC
+
+      LIMIT ?
+      ''',
+      [
+        ...arguments,
+        limit,
+      ],
     );
 
     return result
         .map(
-          RecentSaleReport.fromMap,
+          RecentMilkingReport.fromMap,
         )
         .toList();
+  }
+
+  String _formatDate(
+    DateTime date,
+  ) {
+    final String year = date.year.toString();
+
+    final String month = date.month.toString().padLeft(
+          2,
+          '0',
+        );
+
+    final String day = date.day.toString().padLeft(
+          2,
+          '0',
+        );
+
+    return '$year-$month-$day';
   }
 }

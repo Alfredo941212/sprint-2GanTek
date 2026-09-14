@@ -6,6 +6,8 @@ import '../../../cattle/data/repositories/cattle_repository.dart';
 import '../../data/models/vaccine_record.dart';
 import '../../data/repositories/vaccine_repository.dart';
 import '../../../../core/session/session_manager.dart';
+import '../../../veterinarians/data/models/veterinarian.dart';
+import '../../../veterinarians/data/repositories/veterinarian_repository.dart';
 
 class RegisterVaccineScreen extends StatefulWidget {
   const RegisterVaccineScreen({
@@ -28,7 +30,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
   final VaccineRepository _vaccineRepository = VaccineRepository();
 
-  final TextEditingController _vaccineController = TextEditingController();
+  final VeterinarianRepository _veterinarianRepository =
+      VeterinarianRepository();
+
+  //final TextEditingController _vaccineController = TextEditingController();
 
   final TextEditingController _applicationDateController =
       TextEditingController();
@@ -38,12 +43,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   final TextEditingController _doseController =
       TextEditingController(text: '1');
 
-  final TextEditingController _responsibleController = TextEditingController();
+  final TextEditingController _vaccineController = TextEditingController();
 
   final TextEditingController _observationsController = TextEditingController();
 
   List<Cattle> _cattleList = <Cattle>[];
   Cattle? _selectedCattle;
+
+  List<Veterinarian> _veterinarians = <Veterinarian>[];
+  Veterinarian? _selectedVeterinarian;
 
   DateTime _applicationDate = DateTime.now();
   DateTime? _nextDoseDate;
@@ -62,13 +70,12 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       _applicationDate = vaccine.applicationDate;
       _nextDoseDate = vaccine.nextDoseDate;
       _doseController.text = vaccine.doseNumber.toString();
-      _responsibleController.text = vaccine.responsible;
       _observationsController.text = vaccine.observations;
     }
 
     _updateApplicationDateText();
     _updateNextDoseDateText();
-    _loadCattle();
+    _loadInitialData();
   }
 
   String _formatDate(DateTime date) {
@@ -84,6 +91,31 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   void _updateNextDoseDateText() {
     _nextDoseDateController.text =
         _nextDoseDate == null ? '' : _formatDate(_nextDoseDate!);
+  }
+
+  Future<void> _loadInitialData() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await Future.wait([
+        _loadCattle(),
+        _loadVeterinarians(),
+      ]);
+    } catch (error) {
+      debugPrint(
+        'Error cargando datos de vacunación: $error',
+      );
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   Future<void> _loadCattle() async {
@@ -110,16 +142,11 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       setState(() {
         _cattleList = result;
         _selectedCattle = selectedCattle;
-        _isLoading = false;
       });
     } catch (error) {
       if (!mounted) {
         return;
       }
-
-      setState(() {
-        _isLoading = false;
-      });
 
       _showMessage(
         'No fue posible cargar el ganado.',
@@ -127,6 +154,48 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
       debugPrint(
         'Error cargando ganado para vacuna: $error',
+      );
+    }
+  }
+
+  Future<void> _loadVeterinarians() async {
+    try {
+      final List<Veterinarian> result =
+          await _veterinarianRepository.getActiveVeterinarians();
+
+      if (!mounted) {
+        return;
+      }
+
+      Veterinarian? selectedVeterinarian;
+
+      final VaccineRecord? vaccine = widget.vaccine;
+
+      if (vaccine != null && vaccine.responsible.trim().isNotEmpty) {
+        for (final Veterinarian veterinarian in result) {
+          if (veterinarian.name.trim().toLowerCase() ==
+              vaccine.responsible.trim().toLowerCase()) {
+            selectedVeterinarian = veterinarian;
+            break;
+          }
+        }
+      }
+
+      setState(() {
+        _veterinarians = result;
+        _selectedVeterinarian = selectedVeterinarian;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(
+        'No fue posible cargar los veterinarios.',
+      );
+
+      debugPrint(
+        'Error cargando veterinarios: $error',
       );
     }
   }
@@ -203,6 +272,14 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       );
       return;
     }
+
+    if (_selectedVeterinarian == null) {
+      _showMessage(
+        'Selecciona el veterinario responsable.',
+      );
+      return;
+    }
+
     final int? userId = SessionManager.instance.currentUserId;
 
     if (userId == null) {
@@ -236,7 +313,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
         applicationDate: _applicationDate,
         nextDoseDate: _nextDoseDate,
         doseNumber: doseNumber,
-        responsible: _responsibleController.text.trim(),
+        responsible: _selectedVeterinarian!.name,
         observations: _observationsController.text.trim(),
         createdAt: widget.vaccine?.createdAt ?? DateTime.now(),
       );
@@ -287,7 +364,6 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     _applicationDateController.dispose();
     _nextDoseDateController.dispose();
     _doseController.dispose();
-    _responsibleController.dispose();
     _observationsController.dispose();
 
     super.dispose();
@@ -340,7 +416,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Animal vacunado',
-                        prefixIcon: const FaIcon(
+                        prefixIcon: FaIcon(
                           FontAwesomeIcons.cow,
                           size: 38,
                           color: Color(0xFF0F5132),
@@ -352,7 +428,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                             value: cattle,
                             child: Text(
                               'Arete ${cattle.code} — '
-                              '${cattle.initialWeight.toStringAsFixed(1)} kg',
+                              '${cattle.initialWeight != null ? '${cattle.initialWeight!.toStringAsFixed(1)} kg' : 'Sin peso'}',
                               overflow: TextOverflow.ellipsis,
                             ),
                           );
@@ -441,18 +517,70 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                     },
                   ),
                   const SizedBox(height: 14),
-                  AppTextField(
-                    label: 'Veterinario o responsable',
-                    controller: _responsibleController,
-                    icon: Icons.medical_services_outlined,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Ingresa el responsable';
-                      }
+                  if (_veterinarians.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'No hay veterinarios activos. '
+                                'Registra un veterinario antes de '
+                                'guardar la vacunación.',
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<Veterinarian>(
+                      initialValue: _selectedVeterinarian,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Veterinario responsable',
+                        prefixIcon: Icon(
+                          Icons.medical_services_outlined,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _veterinarians.map(
+                        (Veterinarian veterinarian) {
+                          final String specialty =
+                              veterinarian.specialty?.trim().isNotEmpty == true
+                                  ? ' — ${veterinarian.specialty}'
+                                  : '';
 
-                      return null;
-                    },
-                  ),
+                          return DropdownMenuItem<Veterinarian>(
+                            value: veterinarian,
+                            child: Text(
+                              '${veterinarian.name}$specialty',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                      ).toList(),
+                      onChanged: (Veterinarian? veterinarian) {
+                        setState(() {
+                          _selectedVeterinarian = veterinarian;
+                        });
+                      },
+                      validator: (Veterinarian? value) {
+                        if (value == null) {
+                          return 'Selecciona un veterinario';
+                        }
+
+                        return null;
+                      },
+                    ),
                   const SizedBox(height: 14),
                   AppTextField(
                     label: 'Observaciones (opcional)',
@@ -462,8 +590,11 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
-                    onPressed:
-                        _isSaving || _cattleList.isEmpty ? null : _saveVaccine,
+                    onPressed: _isSaving ||
+                            _cattleList.isEmpty ||
+                            _veterinarians.isEmpty
+                        ? null
+                        : _saveVaccine,
                     icon: _isSaving
                         ? const SizedBox(
                             width: 20,
