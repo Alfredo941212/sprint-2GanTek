@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../cattle/data/models/cattle.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
@@ -32,8 +33,6 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
   final VeterinarianRepository _veterinarianRepository =
       VeterinarianRepository();
-
-  //final TextEditingController _vaccineController = TextEditingController();
 
   final TextEditingController _applicationDateController =
       TextEditingController();
@@ -78,6 +77,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     _loadInitialData();
   }
 
+  // =========================================================
+  // FORMATO DE FECHAS
+  // =========================================================
+
   String _formatDate(DateTime date) {
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
@@ -85,13 +88,19 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   }
 
   void _updateApplicationDateText() {
-    _applicationDateController.text = _formatDate(_applicationDate);
+    _applicationDateController.text = _formatDate(
+      _applicationDate,
+    );
   }
 
   void _updateNextDoseDateText() {
     _nextDoseDateController.text =
         _nextDoseDate == null ? '' : _formatDate(_nextDoseDate!);
   }
+
+  // =========================================================
+  // CARGAR DATOS
+  // =========================================================
 
   Future<void> _loadInitialData() async {
     setState(() {
@@ -117,6 +126,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       _isLoading = false;
     });
   }
+
+  // =========================================================
+  // CARGAR GANADO
+  // =========================================================
 
   Future<void> _loadCattle() async {
     try {
@@ -157,6 +170,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       );
     }
   }
+
+  // =========================================================
+  // CARGAR VETERINARIOS
+  // =========================================================
 
   Future<void> _loadVeterinarians() async {
     try {
@@ -200,6 +217,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     }
   }
 
+  // =========================================================
+  // FECHA DE APLICACIÓN
+  // =========================================================
+
   Future<void> _pickApplicationDate() async {
     final DateTime? selectedDate = await showDatePicker(
       context: context,
@@ -214,6 +235,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
     setState(() {
       _applicationDate = selectedDate;
+
       _updateApplicationDateText();
 
       if (_nextDoseDate != null && _nextDoseDate!.isBefore(_applicationDate)) {
@@ -222,6 +244,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       }
     });
   }
+
+  // =========================================================
+  // PRÓXIMA DOSIS
+  // =========================================================
 
   Future<void> _pickNextDoseDate() async {
     final DateTime initialDate = _nextDoseDate ??
@@ -254,6 +280,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       _nextDoseDateController.clear();
     });
   }
+
+  // =========================================================
+  // GUARDAR / ACTUALIZAR
+  // =========================================================
 
   Future<void> _saveVaccine() async {
     if (_isSaving) {
@@ -288,6 +318,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       );
       return;
     }
+
     final int? doseNumber = int.tryParse(
       _doseController.text.trim(),
     );
@@ -332,7 +363,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
         return;
       }
 
-      Navigator.pop(context, true);
+      Navigator.pop(
+        context,
+        true,
+      );
     } catch (error) {
       _showMessage(
         'No se pudo guardar la vacuna: $error',
@@ -346,17 +380,29 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     }
   }
 
-  void _showMessage(String message) {
+  // =========================================================
+  // MENSAJES
+  // =========================================================
+
+  void _showMessage(
+    String message,
+  ) {
     if (!mounted) {
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(
+          message,
+        ),
       ),
     );
   }
+
+  // =========================================================
+  // DISPOSE
+  // =========================================================
 
   @override
   void dispose() {
@@ -368,6 +414,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
     super.dispose();
   }
+
+  // =========================================================
+  // INTERFAZ
+  // =========================================================
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +436,10 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(18),
                 children: [
+                  // =========================================
+                  // GANADO
+                  // =========================================
+
                   if (_cattleList.isEmpty)
                     Card(
                       child: Padding(
@@ -396,12 +450,16 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                               Icons.warning_amber,
                               size: 48,
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(
+                              height: 10,
+                            ),
                             const Text(
                               'No hay ganado registrado.',
                               textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 6),
+                            const SizedBox(
+                              height: 6,
+                            ),
                             const Text(
                               'Primero debes registrar un animal.',
                               textAlign: TextAlign.center,
@@ -447,7 +505,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                         return null;
                       },
                     ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // NOMBRE VACUNA
+                  // =========================================
+
                   AppTextField(
                     label: 'Nombre de la vacuna',
                     controller: _vaccineController,
@@ -464,7 +530,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // FECHA DE APLICACIÓN
+                  // =========================================
+
                   AppTextField(
                     label: 'Fecha de aplicación',
                     controller: _applicationDateController,
@@ -479,7 +553,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // PRÓXIMA DOSIS
+                  // =========================================
+
                   AppTextField(
                     label: 'Próxima dosis (opcional)',
                     controller: _nextDoseDateController,
@@ -498,7 +580,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                             ),
                           ),
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // NÚMERO DE DOSIS
+                  // =========================================
+
                   AppTextField(
                     label: 'Número de dosis',
                     controller: _doseController,
@@ -516,7 +606,15 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // VETERINARIO
+                  // =========================================
+
                   if (_veterinarians.isEmpty)
                     Card(
                       child: Padding(
@@ -526,7 +624,9 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                             const Icon(
                               Icons.warning_amber_rounded,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(
+                              width: 12,
+                            ),
                             Expanded(
                               child: Text(
                                 'No hay veterinarios activos. '
@@ -581,14 +681,30 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                         return null;
                       },
                     ),
-                  const SizedBox(height: 14),
+
+                  const SizedBox(
+                    height: 14,
+                  ),
+
+                  // =========================================
+                  // OBSERVACIONES
+                  // =========================================
+
                   AppTextField(
                     label: 'Observaciones (opcional)',
                     controller: _observationsController,
                     icon: Icons.notes_outlined,
                     maxLines: 4,
                   ),
-                  const SizedBox(height: 24),
+
+                  const SizedBox(
+                    height: 24,
+                  ),
+
+                  // =========================================
+                  // GUARDAR / ACTUALIZAR
+                  // =========================================
+
                   ElevatedButton.icon(
                     onPressed: _isSaving ||
                             _cattleList.isEmpty ||

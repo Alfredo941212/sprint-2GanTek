@@ -551,13 +551,6 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Editar',
-            onPressed: _isDeleting ? null : _editCattle,
-            icon: const Icon(
-              Icons.edit_outlined,
-            ),
-          ),
-          IconButton(
             tooltip: 'Eliminar',
             onPressed: _isDeleting ? null : _deleteCattle,
             icon: const Icon(
