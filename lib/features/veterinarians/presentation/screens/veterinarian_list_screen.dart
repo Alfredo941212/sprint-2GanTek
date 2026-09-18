@@ -28,6 +28,10 @@ class _VeterinarianListScreenState extends State<VeterinarianListScreen> {
     _loadVeterinarians();
   }
 
+  // =========================================================
+  // DETALLE
+  // =========================================================
+
   Future<void> _openVeterinarianDetail(
     Veterinarian veterinarian,
   ) async {
@@ -44,6 +48,7 @@ class _VeterinarianListScreenState extends State<VeterinarianListScreen> {
       await _loadVeterinarians();
     }
   }
+
   // =========================================================
   // CARGAR VETERINARIOS
   // =========================================================
@@ -216,62 +221,6 @@ class _VeterinarianListScreenState extends State<VeterinarianListScreen> {
   }
 
   // =========================================================
-  // OPCIONES
-  // =========================================================
-
-  void _showOptions(
-    Veterinarian veterinarian,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (
-        BuildContext sheetContext,
-      ) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.edit_outlined,
-                ),
-                title: const Text(
-                  'Editar',
-                ),
-                onTap: () {
-                  Navigator.pop(
-                    sheetContext,
-                  );
-
-                  _openEditVeterinarian(
-                    veterinarian,
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                ),
-                title: const Text(
-                  'Eliminar',
-                ),
-                onTap: () {
-                  Navigator.pop(
-                    sheetContext,
-                  );
-
-                  _deleteVeterinarian(
-                    veterinarian,
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // =========================================================
   // INTERFAZ
   // =========================================================
 
@@ -427,13 +376,24 @@ class _VeterinarianListScreenState extends State<VeterinarianListScreen> {
 
         return _VeterinarianCard(
           veterinarian: veterinarian,
+
+          // Al tocar la tarjeta abre el detalle.
           onTap: () {
             _openVeterinarianDetail(
               veterinarian,
             );
           },
-          onOptions: () {
-            _showOptions(
+
+          // Editar desde los tres puntos.
+          onEdit: () {
+            _openEditVeterinarian(
+              veterinarian,
+            );
+          },
+
+          // Eliminar desde los tres puntos.
+          onDelete: () {
+            _deleteVeterinarian(
               veterinarian,
             );
           },
@@ -451,12 +411,14 @@ class _VeterinarianCard extends StatelessWidget {
   const _VeterinarianCard({
     required this.veterinarian,
     required this.onTap,
-    required this.onOptions,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final Veterinarian veterinarian;
   final VoidCallback onTap;
-  final VoidCallback onOptions;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(
@@ -473,7 +435,6 @@ class _VeterinarianCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        onLongPress: onOptions,
         child: Padding(
           padding: const EdgeInsets.all(
             14,
@@ -481,15 +442,25 @@ class _VeterinarianCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
+              // =================================================
+              // ICONO
+              // =================================================
+
+              const CircleAvatar(
                 radius: 27,
-                child: const Icon(
+                child: Icon(
                   Icons.medical_services_outlined,
                 ),
               ),
+
               const SizedBox(
                 width: 14,
               ),
+
+              // =================================================
+              // INFORMACIÓN
+              // =================================================
+
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -557,12 +528,65 @@ class _VeterinarianCard extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: onOptions,
+
+              // =================================================
+              // TRES PUNTOS
+              // =================================================
+
+              PopupMenuButton<String>(
+                tooltip: 'Opciones',
                 icon: const Icon(
                   Icons.more_vert,
                 ),
-                tooltip: 'Opciones',
+                onSelected: (
+                  String value,
+                ) {
+                  if (value == 'edit') {
+                    onEdit();
+                  }
+
+                  if (value == 'delete') {
+                    onDelete();
+                  }
+                },
+                itemBuilder: (
+                  BuildContext context,
+                ) {
+                  return [
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.edit_outlined,
+                          ),
+                          SizedBox(
+                            width: 12,
+                          ),
+                          Text(
+                            'Editar',
+                          ),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem<String>(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline,
+                          ),
+                          SizedBox(
+                            width: 12,
+                          ),
+                          Text(
+                            'Eliminar',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ];
+                },
               ),
             ],
           ),

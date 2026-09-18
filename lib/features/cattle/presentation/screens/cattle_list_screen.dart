@@ -10,7 +10,6 @@ import '../../../../core/theme/app_colors.dart';
 import '../../data/models/cattle.dart';
 import '../../data/repositories/cattle_repository.dart';
 import 'register_cattle_screen.dart';
-
 import 'cattle_detail_screen.dart';
 
 class CattleListScreen extends StatefulWidget {
@@ -34,7 +33,6 @@ class _CattleListScreenState extends State<CattleListScreen> {
   @override
   void initState() {
     super.initState();
-
     _loadCattle();
   }
 
@@ -104,8 +102,9 @@ class _CattleListScreenState extends State<CattleListScreen> {
   }
 
   // =========================================================
-  // EDITAR
+  // DETALLE
   // =========================================================
+
   Future<void> _openCattleDetail(
     Cattle cattle,
   ) async {
@@ -129,6 +128,10 @@ class _CattleListScreenState extends State<CattleListScreen> {
       _loadCattle();
     }
   }
+
+  // =========================================================
+  // EDITAR
+  // =========================================================
 
   Future<void> _openEditCattle(
     Cattle cattle,
@@ -180,8 +183,7 @@ class _CattleListScreenState extends State<CattleListScreen> {
             'Eliminar registro',
           ),
           content: Text(
-            '¿Deseas eliminar el animal '
-            '${cattle.code}?',
+            '¿Deseas eliminar el animal ${cattle.code}?',
           ),
           actions: [
             TextButton(
@@ -253,62 +255,6 @@ class _CattleListScreenState extends State<CattleListScreen> {
   }
 
   // =========================================================
-  // MOSTRAR OPCIONES
-  // =========================================================
-
-  void _showOptions(
-    Cattle cattle,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      builder: (
-        BuildContext sheetContext,
-      ) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.edit_outlined,
-                ),
-                title: const Text(
-                  'Editar animal',
-                ),
-                onTap: () {
-                  Navigator.pop(
-                    sheetContext,
-                  );
-
-                  _openEditCattle(
-                    cattle,
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                ),
-                title: const Text(
-                  'Eliminar registro',
-                ),
-                onTap: () {
-                  Navigator.pop(
-                    sheetContext,
-                  );
-
-                  _deleteCattle(
-                    cattle,
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  // =========================================================
   // TEXTO DEL PESO
   // =========================================================
 
@@ -321,8 +267,7 @@ class _CattleListScreenState extends State<CattleListScreen> {
       return 'Peso: sin registro';
     }
 
-    return 'Peso: '
-        '${weight.toStringAsFixed(0)} kg';
+    return 'Peso: ${weight.toStringAsFixed(0)} kg';
   }
 
   // =========================================================
@@ -401,6 +346,7 @@ class _CattleListScreenState extends State<CattleListScreen> {
           'Ganado registrado',
         ),
       ),
+
       body: FutureBuilder<List<Cattle>>(
         future: _cattleFuture,
         builder: (
@@ -468,7 +414,6 @@ class _CattleListScreenState extends State<CattleListScreen> {
           return RefreshIndicator(
             onRefresh: () async {
               _loadCattle();
-
               await _cattleFuture;
             },
             child: ListView.separated(
@@ -493,19 +438,17 @@ class _CattleListScreenState extends State<CattleListScreen> {
                 return Card(
                   margin: EdgeInsets.zero,
                   child: InkWell(
+                    // Al tocar la tarjeta abre el detalle.
                     onTap: () {
                       _openCattleDetail(
                         cattle,
                       );
                     },
-                    onLongPress: () {
-                      _showOptions(
-                        cattle,
-                      );
-                    },
+
                     borderRadius: BorderRadius.circular(
                       14,
                     ),
+
                     child: Padding(
                       padding: const EdgeInsets.all(
                         12,
@@ -513,9 +456,9 @@ class _CattleListScreenState extends State<CattleListScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // ===============================
+                          // ===================================
                           // FOTO
-                          // ===============================
+                          // ===================================
 
                           _CattleImage(
                             imagePath: cattle.imagePath,
@@ -525,9 +468,9 @@ class _CattleListScreenState extends State<CattleListScreen> {
                             width: 12,
                           ),
 
-                          // ===============================
+                          // ===================================
                           // INFORMACIÓN
-                          // ===============================
+                          // ===================================
 
                           Expanded(
                             child: Column(
@@ -535,6 +478,10 @@ class _CattleListScreenState extends State<CattleListScreen> {
                               children: [
                                 Row(
                                   children: [
+                                    // ===========================
+                                    // NOMBRE / ARETE
+                                    // ===========================
+
                                     Expanded(
                                       child: Text(
                                         cattle.name.trim().isNotEmpty
@@ -549,45 +496,120 @@ class _CattleListScreenState extends State<CattleListScreen> {
                                             ),
                                       ),
                                     ),
-                                    IconButton(
+
+                                    // ===========================
+                                    // MENÚ DE TRES PUNTOS
+                                    // ===========================
+
+                                    PopupMenuButton<String>(
                                       tooltip: 'Opciones',
-                                      onPressed: () {
-                                        _showOptions(
-                                          cattle,
-                                        );
-                                      },
                                       icon: const Icon(
                                         Icons.more_vert,
                                       ),
+                                      onSelected: (
+                                        String value,
+                                      ) {
+                                        if (value == 'edit') {
+                                          _openEditCattle(
+                                            cattle,
+                                          );
+                                        }
+
+                                        if (value == 'delete') {
+                                          _deleteCattle(
+                                            cattle,
+                                          );
+                                        }
+                                      },
+                                      itemBuilder: (
+                                        BuildContext context,
+                                      ) {
+                                        return [
+                                          const PopupMenuItem<String>(
+                                            value: 'edit',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.edit_outlined,
+                                                ),
+                                                SizedBox(
+                                                  width: 12,
+                                                ),
+                                                Text(
+                                                  'Editar',
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuItem<String>(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.delete_outline,
+                                                ),
+                                                SizedBox(
+                                                  width: 12,
+                                                ),
+                                                Text(
+                                                  'Eliminar',
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ];
+                                      },
                                     ),
                                   ],
                                 ),
+
+                                // ===================================
+                                // ARETE
+                                // ===================================
+
                                 if (cattle.name.trim().isNotEmpty)
                                   Text(
-                                    'Arete: '
-                                    '${cattle.code}',
+                                    'Arete: ${cattle.code}',
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
                                   ),
+
                                 const SizedBox(
                                   height: 5,
                                 ),
+
+                                // ===================================
+                                // LOTE Y PESO
+                                // ===================================
+
                                 Text(
                                   '${_lotText(cattle)}  •  '
                                   '${_weightText(cattle)}',
                                 ),
+
                                 const SizedBox(
                                   height: 3,
                                 ),
+
+                                // ===================================
+                                // RAZA
+                                // ===================================
+
                                 Text(
                                   cattle.breed.trim().isEmpty
                                       ? 'Raza: sin especificar'
                                       : 'Raza: ${cattle.breed}',
                                 ),
+
                                 const SizedBox(
                                   height: 8,
                                 ),
+
+                                // ===================================
+                                // ESTADOS
+                                // ===================================
+
                                 Wrap(
                                   spacing: 7,
                                   runSpacing: 6,
@@ -625,6 +647,11 @@ class _CattleListScreenState extends State<CattleListScreen> {
           );
         },
       ),
+
+      // =======================================================
+      // BOTÓN REGISTRAR
+      // =======================================================
+
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openRegisterScreen,
         icon: const Icon(
@@ -717,9 +744,7 @@ class _StatusChip extends StatelessWidget {
   });
 
   final String text;
-
   final Color foreground;
-
   final Color background;
 
   @override

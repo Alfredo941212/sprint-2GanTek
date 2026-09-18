@@ -6,7 +6,9 @@ import 'register_vaccine_screen.dart';
 import 'vaccine_detail_screen.dart';
 
 class VaccineListScreen extends StatefulWidget {
-  const VaccineListScreen({super.key});
+  const VaccineListScreen({
+    super.key,
+  });
 
   @override
   State<VaccineListScreen> createState() => _VaccineListScreenState();
@@ -23,17 +25,29 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
     _loadVaccines();
   }
 
+  // =========================================================
+  // CARGAR VACUNAS
+  // =========================================================
+
   void _loadVaccines() {
     _vaccinesFuture = _repository.getAllVaccines();
   }
 
-  String _formatDate(DateTime date) {
+  // =========================================================
+  // FECHAS
+  // =========================================================
+
+  String _formatDate(
+    DateTime date,
+  ) {
     return '${date.day.toString().padLeft(2, '0')}/'
         '${date.month.toString().padLeft(2, '0')}/'
         '${date.year}';
   }
 
-  bool _isUpcoming(DateTime? nextDoseDate) {
+  bool _isUpcoming(
+    DateTime? nextDoseDate,
+  ) {
     if (nextDoseDate == null) {
       return false;
     }
@@ -41,13 +55,17 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
     final DateTime today = DateTime.now();
 
     final DateTime limit = today.add(
-      const Duration(days: 30),
+      const Duration(
+        days: 30,
+      ),
     );
 
     return !nextDoseDate.isBefore(today) && !nextDoseDate.isAfter(limit);
   }
 
-  bool _isOverdue(DateTime? nextDoseDate) {
+  bool _isOverdue(
+    DateTime? nextDoseDate,
+  ) {
     if (nextDoseDate == null) {
       return false;
     }
@@ -61,6 +79,10 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
     return nextDoseDate.isBefore(today);
   }
 
+  // =========================================================
+  // REGISTRAR VACUNA
+  // =========================================================
+
   Future<void> _openRegisterVaccine() async {
     final bool? wasSaved = await Navigator.push<bool>(
       context,
@@ -69,22 +91,30 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
       ),
     );
 
-    if (wasSaved == true) {
-      setState(_loadVaccines);
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Vacunación registrada correctamente.',
-          ),
-        ),
-      );
+    if (wasSaved != true) {
+      return;
     }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(
+      _loadVaccines,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Vacunación registrada correctamente.',
+        ),
+      ),
+    );
   }
+
+  // =========================================================
+  // DETALLE
+  // =========================================================
 
   Future<void> _openVaccineDetail(
     VaccineRecord vaccine,
@@ -102,10 +132,16 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
       return;
     }
 
-    setState(_loadVaccines);
+    setState(
+      _loadVaccines,
+    );
   }
 
-  /*Future<void> _openEditVaccine(
+  // =========================================================
+  // EDITAR VACUNA
+  // =========================================================
+
+  Future<void> _editVaccine(
     VaccineRecord vaccine,
   ) async {
     final bool? updated = await Navigator.push<bool>(
@@ -117,15 +153,13 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
       ),
     );
 
-    if (updated != true) {
+    if (updated != true || !mounted) {
       return;
     }
 
-    setState(_loadVaccines);
-
-    if (!mounted) {
-      return;
-    }
+    setState(
+      _loadVaccines,
+    );
 
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -136,7 +170,11 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
           ),
         ),
       );
-  }*/
+  }
+
+  // =========================================================
+  // ELIMINAR VACUNA
+  // =========================================================
 
   Future<void> _deleteVaccine(
     VaccineRecord vaccine,
@@ -147,7 +185,9 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
 
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (BuildContext dialogContext) {
+      builder: (
+        BuildContext dialogContext,
+      ) {
         return AlertDialog(
           title: const Text(
             'Eliminar vacunación',
@@ -165,7 +205,9 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                   false,
                 );
               },
-              child: const Text('Cancelar'),
+              child: const Text(
+                'Cancelar',
+              ),
             ),
             FilledButton(
               onPressed: () {
@@ -174,7 +216,9 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                   true,
                 );
               },
-              child: const Text('Eliminar'),
+              child: const Text(
+                'Eliminar',
+              ),
             ),
           ],
         );
@@ -185,37 +229,90 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
       return;
     }
 
-    await _repository.deleteVaccineRecord(
-      vaccine.id!,
-    );
+    try {
+      await _repository.deleteVaccineRecord(
+        vaccine.id!,
+      );
 
-    setState(_loadVaccines);
+      if (!mounted) {
+        return;
+      }
+
+      setState(
+        _loadVaccines,
+      );
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Vacunación eliminada correctamente.',
+            ),
+          ),
+        );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No fue posible eliminar la vacunación.',
+            ),
+          ),
+        );
+
+      debugPrint(
+        'Error eliminando vacunación: $error',
+      );
+    }
   }
 
+  // =========================================================
+  // INTERFAZ
+  // =========================================================
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
           'Historial de vacunas',
         ),
       ),
+
       body: FutureBuilder<List<VaccineRecord>>(
         future: _vaccinesFuture,
         builder: (
           BuildContext context,
           AsyncSnapshot<List<VaccineRecord>> snapshot,
         ) {
+          // ===================================================
+          // CARGANDO
+          // ===================================================
+
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
               child: CircularProgressIndicator(),
             );
           }
 
+          // ===================================================
+          // ERROR
+          // ===================================================
+
           if (snapshot.hasError) {
             return Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(
+                  24,
+                ),
                 child: Text(
                   'No fue posible cargar las vacunas.\n'
                   '${snapshot.error}',
@@ -228,10 +325,16 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
           final List<VaccineRecord> vaccines =
               snapshot.data ?? <VaccineRecord>[];
 
+          // ===================================================
+          // LISTA VACÍA
+          // ===================================================
+
           if (vaccines.isEmpty) {
             return const Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: EdgeInsets.all(
+                  24,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -239,7 +342,9 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                       Icons.vaccines_outlined,
                       size: 72,
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(
+                      height: 16,
+                    ),
                     Text(
                       'Todavía no hay vacunas registradas.',
                       textAlign: TextAlign.center,
@@ -250,16 +355,30 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
             );
           }
 
+          // ===================================================
+          // LISTA
+          // ===================================================
+
           return RefreshIndicator(
             onRefresh: () async {
-              setState(_loadVaccines);
+              setState(
+                _loadVaccines,
+              );
+
               await _vaccinesFuture;
             },
             child: ListView.separated(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(
+                16,
+              ),
               itemCount: vaccines.length,
-              separatorBuilder: (_, __) {
-                return const SizedBox(height: 12);
+              separatorBuilder: (
+                _,
+                __,
+              ) {
+                return const SizedBox(
+                  height: 12,
+                );
               },
               itemBuilder: (
                 BuildContext context,
@@ -289,19 +408,48 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                 }
 
                 return Card(
+                  margin: EdgeInsets.zero,
+                  clipBehavior: Clip.antiAlias,
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(
+                      14,
+                    ),
+
+                    // =========================================
+                    // ABRIR DETALLE
+                    // =========================================
+
                     onTap: () {
-                      _openVaccineDetail(vaccine);
+                      _openVaccineDetail(
+                        vaccine,
+                      );
                     },
+
                     child: Padding(
-                      padding: const EdgeInsets.all(14),
+                      padding: const EdgeInsets.all(
+                        14,
+                      ),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          // ===================================
+                          // ICONO
+                          // ===================================
+
                           const CircleAvatar(
-                            child: Icon(Icons.vaccines),
+                            child: Icon(
+                              Icons.vaccines,
+                            ),
                           ),
-                          const SizedBox(width: 14),
+
+                          const SizedBox(
+                            width: 14,
+                          ),
+
+                          // ===================================
+                          // INFORMACIÓN
+                          // ===================================
+
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,6 +461,9 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                                     fontSize: 17,
                                   ),
                                 ),
+                                const SizedBox(
+                                  height: 3,
+                                ),
                                 Text(
                                   'Animal: ${vaccine.cattleCode}',
                                 ),
@@ -323,18 +474,82 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                                 Text(
                                   'Dosis: ${vaccine.dose}',
                                 ),
-                                Text(nextDoseText),
+                                Text(
+                                  nextDoseText,
+                                ),
                               ],
                             ),
                           ),
-                          IconButton(
-                            tooltip: 'Eliminar',
-                            onPressed: () {
-                              _deleteVaccine(vaccine);
-                            },
+
+                          // ===================================
+                          // TRES PUNTOS
+                          // ===================================
+
+                          PopupMenuButton<String>(
+                            tooltip: 'Opciones',
                             icon: const Icon(
-                              Icons.delete_outline,
+                              Icons.more_vert,
                             ),
+                            onSelected: (
+                              String value,
+                            ) {
+                              if (value == 'edit') {
+                                _editVaccine(
+                                  vaccine,
+                                );
+                              } else if (value == 'delete') {
+                                _deleteVaccine(
+                                  vaccine,
+                                );
+                              }
+                            },
+                            itemBuilder: (
+                              BuildContext context,
+                            ) {
+                              return [
+                                // =============================
+                                // EDITAR
+                                // =============================
+
+                                const PopupMenuItem<String>(
+                                  value: 'edit',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.edit_outlined,
+                                      ),
+                                      SizedBox(
+                                        width: 12,
+                                      ),
+                                      Text(
+                                        'Editar',
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                // =============================
+                                // ELIMINAR
+                                // =============================
+
+                                const PopupMenuItem<String>(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.delete_outline,
+                                      ),
+                                      SizedBox(
+                                        width: 12,
+                                      ),
+                                      Text(
+                                        'Eliminar',
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ];
+                            },
                           ),
                         ],
                       ),
@@ -346,9 +561,16 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
           );
         },
       ),
+
+      // =======================================================
+      // REGISTRAR VACUNA
+      // =======================================================
+
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openRegisterVaccine,
-        icon: const Icon(Icons.add),
+        icon: const Icon(
+          Icons.add,
+        ),
         label: const Text(
           'Registrar vacuna',
         ),

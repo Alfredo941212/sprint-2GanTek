@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/vaccine_record.dart';
-import '../../data/repositories/vaccine_repository.dart';
-import 'register_vaccine_screen.dart';
 
 class VaccineDetailScreen extends StatefulWidget {
   const VaccineDetailScreen({
@@ -17,141 +15,12 @@ class VaccineDetailScreen extends StatefulWidget {
 }
 
 class _VaccineDetailScreenState extends State<VaccineDetailScreen> {
-  final VaccineRepository _repository = VaccineRepository();
-
   late VaccineRecord _vaccine;
-
-  bool _isDeleting = false;
 
   @override
   void initState() {
     super.initState();
     _vaccine = widget.vaccine;
-  }
-
-  // =========================================================
-  // EDITAR
-  // =========================================================
-
-  Future<void> _editVaccine() async {
-    final bool? updated = await Navigator.push<bool>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RegisterVaccineScreen(
-          vaccine: _vaccine,
-        ),
-      ),
-    );
-
-    if (updated != true) {
-      return;
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    Navigator.pop(
-      context,
-      true,
-    );
-  }
-
-  // =========================================================
-  // ELIMINAR
-  // =========================================================
-
-  Future<void> _deleteVaccine() async {
-    final int? vaccineId = _vaccine.id;
-
-    if (vaccineId == null) {
-      return;
-    }
-
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (
-        BuildContext dialogContext,
-      ) {
-        return AlertDialog(
-          title: const Text(
-            'Eliminar vacunación',
-          ),
-          content: Text(
-            '¿Deseas eliminar el registro de '
-            '${_vaccine.vaccineName} aplicado al '
-            'animal ${_vaccine.cattleCode}?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  false,
-                );
-              },
-              child: const Text(
-                'Cancelar',
-              ),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(
-                  dialogContext,
-                  true,
-                );
-              },
-              child: const Text(
-                'Eliminar',
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    setState(() {
-      _isDeleting = true;
-    });
-
-    try {
-      await _repository.deleteVaccineRecord(
-        vaccineId,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      Navigator.pop(
-        context,
-        true,
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _isDeleting = false;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No fue posible eliminar la vacunación.',
-          ),
-        ),
-      );
-
-      debugPrint(
-        'Error eliminando vacunación: $error',
-      );
-    }
   }
 
   // =========================================================
@@ -201,15 +70,11 @@ class _VaccineDetailScreenState extends State<VaccineDetailScreen> {
       ),
     );
 
-    if (nextDoseDate.isBefore(
-      today,
-    )) {
+    if (nextDoseDate.isBefore(today)) {
       return 'Vencida';
     }
 
-    if (!nextDoseDate.isAfter(
-      limit,
-    )) {
+    if (!nextDoseDate.isAfter(limit)) {
       return 'Próxima';
     }
 
@@ -261,22 +126,6 @@ class _VaccineDetailScreenState extends State<VaccineDetailScreen> {
         title: const Text(
           'Detalle de vacunación',
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Editar',
-            onPressed: _isDeleting ? null : _editVaccine,
-            icon: const Icon(
-              Icons.edit_outlined,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Eliminar',
-            onPressed: _isDeleting ? null : _deleteVaccine,
-            icon: const Icon(
-              Icons.delete_outline,
-            ),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(
@@ -429,48 +278,6 @@ class _VaccineDetailScreenState extends State<VaccineDetailScreen> {
 
           const SizedBox(
             height: 24,
-          ),
-
-          // ===================================================
-          // BOTONES
-          // ===================================================
-
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _isDeleting ? null : _editVaccine,
-                  icon: const Icon(
-                    Icons.edit_outlined,
-                  ),
-                  label: const Text(
-                    'Editar',
-                  ),
-                ),
-              ),
-              const SizedBox(
-                width: 12,
-              ),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _isDeleting ? null : _deleteVaccine,
-                  icon: _isDeleting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Icon(
-                          Icons.delete_outline,
-                        ),
-                  label: Text(
-                    _isDeleting ? 'Eliminando...' : 'Eliminar',
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
