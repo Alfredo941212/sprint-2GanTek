@@ -110,6 +110,54 @@ class AuthRepository {
     }
   }
 
+  Future<UserModel> createLocalUser({
+    required String fullName,
+    required String email,
+    required String phone,
+  }) async {
+    final String normalizedEmail = email.trim().toLowerCase();
+
+    final Database database = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> existingUsers = await database.query(
+      DatabaseHelper.usersTable,
+      where: 'email = ?',
+      whereArgs: [normalizedEmail],
+      limit: 1,
+    );
+
+    if (existingUsers.isNotEmpty) {
+      return UserModel.fromMap(
+        existingUsers.first,
+      );
+    }
+
+    final UserModel user = UserModel(
+      fullName: fullName.trim(),
+      email: normalizedEmail,
+      phone: phone.trim(),
+      passwordHash: hashPassword(
+        'api:$normalizedEmail',
+      ),
+      role: 'ganadero',
+      createdAt: DateTime.now(),
+    );
+
+    final Map<String, dynamic> data = user.toMap();
+
+    data.remove('id');
+
+    final int id = await database.insert(
+      DatabaseHelper.usersTable,
+      data,
+      conflictAlgorithm: ConflictAlgorithm.abort,
+    );
+
+    return user.copyWith(
+      id: id,
+    );
+  }
+
   Future<bool> emailExists(String email) async {
     final Database database = await _databaseHelper.database;
 

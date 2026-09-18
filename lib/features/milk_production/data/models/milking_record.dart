@@ -76,6 +76,46 @@ class MilkingRecord {
     );
   }
 
+// =========================================================
+// CONVERTIR DESDE API LARAVEL
+// =========================================================
+
+  factory MilkingRecord.fromApi(
+    Map<String, dynamic> map,
+  ) {
+    return MilkingRecord(
+      id: _toInt(
+        map['id'],
+      ),
+      userId: _toInt(
+            map['user_id'],
+          ) ??
+          0,
+      cattleId: _toInt(
+            map['ganado_id'],
+          ) ??
+          0,
+      historicalLotId: _toInt(
+        map['lote_historico_id'],
+      ),
+      date: _parseDate(
+        map['fecha'],
+      ),
+      milkingNumber: _toInt(
+            map['numero_ordenio'],
+          ) ??
+          1,
+      shift: map['turno']?.toString(),
+      liters: _toDouble(
+        map['litros'],
+      ),
+      observations: map['observaciones']?.toString(),
+      createdAt: _parseNullableDateTime(
+        map['created_at'],
+      ),
+    );
+  }
+
   // =========================================================
   // COPY WITH
   // =========================================================
@@ -168,5 +208,38 @@ class MilkingRecord {
     }
 
     return text;
+  }
+
+  static int? _toInt(
+    dynamic value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(
+      value.toString(),
+    );
+  }
+
+  static double _toDouble(
+    dynamic value,
+  ) {
+    if (value == null) {
+      return 0.0;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value.toString(),
+        ) ??
+        0.0;
   }
 }

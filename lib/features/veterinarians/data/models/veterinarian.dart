@@ -21,18 +21,29 @@ class Veterinarian {
   final String? observations;
   final String? createdAt;
 
+  // =========================================================
+  // SQLITE - COMPATIBILIDAD TEMPORAL
+  // =========================================================
+
   Map<String, dynamic> toMap() {
     final Map<String, dynamic> map = {
       'name': name.trim(),
-      'professional_license': professionalLicense?.trim().isEmpty == true
-          ? null
-          : professionalLicense?.trim(),
-      'phone': phone?.trim().isEmpty == true ? null : phone?.trim(),
-      'email': email?.trim().isEmpty == true ? null : email?.trim(),
-      'specialty': specialty?.trim().isEmpty == true ? null : specialty?.trim(),
+      'professional_license': _cleanNullable(
+        professionalLicense,
+      ),
+      'phone': _cleanNullable(
+        phone,
+      ),
+      'email': _cleanNullable(
+        email,
+      ),
+      'specialty': _cleanNullable(
+        specialty,
+      ),
       'status': status,
-      'observations':
-          observations?.trim().isEmpty == true ? null : observations?.trim(),
+      'observations': _cleanNullable(
+        observations,
+      ),
       'created_at': createdAt,
     };
 
@@ -47,17 +58,61 @@ class Veterinarian {
     Map<String, dynamic> map,
   ) {
     return Veterinarian(
-      id: map['id'] as int?,
-      name: (map['name'] as String?) ?? '',
-      professionalLicense: map['professional_license'] as String?,
-      phone: map['phone'] as String?,
-      email: map['email'] as String?,
-      specialty: map['specialty'] as String?,
-      status: (map['status'] as String?) ?? 'Activo',
-      observations: map['observations'] as String?,
-      createdAt: map['created_at'] as String?,
+      id: (map['id'] as num?)?.toInt(),
+      name: map['name']?.toString() ?? '',
+      professionalLicense: map['professional_license']?.toString(),
+      phone: map['phone']?.toString(),
+      email: map['email']?.toString(),
+      specialty: map['specialty']?.toString(),
+      status: map['status']?.toString() ?? 'Activo',
+      observations: map['observations']?.toString(),
+      createdAt: map['created_at']?.toString(),
     );
   }
+
+  // =========================================================
+  // API LARAVEL
+  // =========================================================
+
+  factory Veterinarian.fromApi(
+    Map<String, dynamic> map,
+  ) {
+    return Veterinarian(
+      id: (map['id'] as num?)?.toInt(),
+      name: map['nombre']?.toString() ?? '',
+      professionalLicense: map['cedula_profesional']?.toString(),
+      phone: map['telefono']?.toString(),
+      email: map['correo']?.toString(),
+      specialty: map['especialidad']?.toString(),
+      status: map['estado']?.toString() ?? 'Activo',
+      observations: map['observaciones']?.toString(),
+      createdAt: map['created_at']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toApi() {
+    return {
+      'nombre': name.trim(),
+      'cedula_profesional': professionalLicense?.trim() ?? '',
+      'telefono': _cleanNullable(
+        phone,
+      ),
+      'correo': _cleanNullable(
+        email,
+      ),
+      'especialidad': _cleanNullable(
+        specialty,
+      ),
+      'estado': status,
+      'observaciones': _cleanNullable(
+        observations,
+      ),
+    };
+  }
+
+  // =========================================================
+  // COPY WITH
+  // =========================================================
 
   Veterinarian copyWith({
     int? id,
@@ -81,5 +136,25 @@ class Veterinarian {
       observations: observations ?? this.observations,
       createdAt: createdAt ?? this.createdAt,
     );
+  }
+
+  // =========================================================
+  // AUXILIAR
+  // =========================================================
+
+  static String? _cleanNullable(
+    String? value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    final String cleaned = value.trim();
+
+    if (cleaned.isEmpty) {
+      return null;
+    }
+
+    return cleaned;
   }
 }

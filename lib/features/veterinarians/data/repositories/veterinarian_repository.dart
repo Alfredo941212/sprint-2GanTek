@@ -1,9 +1,9 @@
-import '../../../../core/database/database_helper.dart';
+import 'dart:convert';
+
+import '../../../../core/network/api_client.dart';
 import '../models/veterinarian.dart';
 
 class VeterinarianRepository {
-  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
-
   // =========================================================
   // REGISTRAR
   // =========================================================
@@ -11,9 +11,8 @@ class VeterinarianRepository {
   Future<int> insertVeterinarian(
     Veterinarian veterinarian,
   ) async {
-    final database = await _databaseHelper.database;
-
     final String name = veterinarian.name.trim();
+    final String license = veterinarian.professionalLicense?.trim() ?? '';
 
     if (name.isEmpty) {
       throw Exception(
@@ -21,44 +20,72 @@ class VeterinarianRepository {
       );
     }
 
-    final String? license = _cleanNullable(
-      veterinarian.professionalLicense,
-    );
-
-    if (license != null) {
-      final bool exists = await professionalLicenseExists(
-        license,
+    if (license.isEmpty) {
+      throw Exception(
+        'La cédula profesional es obligatoria.',
       );
-
-      if (exists) {
-        throw Exception(
-          'Ya existe un veterinario con esa cédula profesional.',
-        );
-      }
     }
 
-    final Veterinarian newVeterinarian = veterinarian.copyWith(
-      name: name,
-      professionalLicense: license,
-      phone: _cleanNullable(
-        veterinarian.phone,
-      ),
-      email: _cleanNullable(
-        veterinarian.email,
-      ),
-      specialty: _cleanNullable(
-        veterinarian.specialty,
-      ),
-      observations: _cleanNullable(
-        veterinarian.observations,
-      ),
-      createdAt: DateTime.now().toIso8601String(),
+    final response = await ApiClient.instance.post(
+      '/veterinarios',
+      body: veterinarian.toApi(),
     );
 
-    return database.insert(
-      DatabaseHelper.veterinariansTable,
-      newVeterinarian.toMap(),
+    if (response.statusCode == 401) {
+      throw Exception(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para registrar veterinarios.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw Exception(
+        _extractMessage(
+          response.body,
+          'Los datos del veterinario no son válidos.',
+        ),
+      );
+    }
+
+    if (response.statusCode != 201) {
+      throw Exception(
+        'No se pudo registrar el veterinario. '
+        'Código ${response.statusCode}.',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
     );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'La respuesta del servidor no es válida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    if (data is! Map<String, dynamic>) {
+      throw Exception(
+        'No se recibió el veterinario registrado.',
+      );
+    }
+
+    final Veterinarian created = Veterinarian.fromApi(data);
+
+    if (created.id == null) {
+      throw Exception(
+        'El servidor no devolvió el ID del veterinario.',
+      );
+    }
+
+    return created.id!;
   }
 
   // =========================================================
@@ -66,18 +93,55 @@ class VeterinarianRepository {
   // =========================================================
 
   Future<List<Veterinarian>> getAllVeterinarians() async {
-    final database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.veterinariansTable,
-      orderBy: 'name COLLATE NOCASE ASC',
+    final response = await ApiClient.instance.get(
+      '/veterinarios',
     );
 
-    return result
+    if (response.statusCode == 401) {
+      throw Exception(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudieron obtener los veterinarios. '
+        'Código ${response.statusCode}.',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
+    );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'La respuesta de veterinarios no es válida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    if (data is! List) {
+      throw Exception(
+        'La lista de veterinarios no es válida.',
+      );
+    }
+
+    final List<Veterinarian> veterinarians = data
+        .whereType<Map<String, dynamic>>()
         .map(
-          (Map<String, dynamic> row) => Veterinarian.fromMap(row),
+          (Map<String, dynamic> item) => Veterinarian.fromApi(item),
         )
         .toList();
+
+    veterinarians.sort(
+      (Veterinarian a, Veterinarian b) => a.name.toLowerCase().compareTo(
+            b.name.toLowerCase(),
+          ),
+    );
+
+    return veterinarians;
   }
 
   // =========================================================
@@ -85,20 +149,11 @@ class VeterinarianRepository {
   // =========================================================
 
   Future<List<Veterinarian>> getActiveVeterinarians() async {
-    final database = await _databaseHelper.database;
+    final List<Veterinarian> veterinarians = await getAllVeterinarians();
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.veterinariansTable,
-      where: 'status = ?',
-      whereArgs: [
-        'Activo',
-      ],
-      orderBy: 'name COLLATE NOCASE ASC',
-    );
-
-    return result
-        .map(
-          (Map<String, dynamic> row) => Veterinarian.fromMap(row),
+    return veterinarians
+        .where(
+          (Veterinarian veterinarian) => veterinarian.status == 'Activo',
         )
         .toList();
   }
@@ -110,24 +165,44 @@ class VeterinarianRepository {
   Future<Veterinarian?> getVeterinarianById(
     int id,
   ) async {
-    final database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.veterinariansTable,
-      where: 'id = ?',
-      whereArgs: [
-        id,
-      ],
-      limit: 1,
+    final response = await ApiClient.instance.get(
+      '/veterinarios/$id',
     );
 
-    if (result.isEmpty) {
+    if (response.statusCode == 401) {
+      throw Exception(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 404) {
       return null;
     }
 
-    return Veterinarian.fromMap(
-      result.first,
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudo obtener el veterinario. '
+        'Código ${response.statusCode}.',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
     );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'La respuesta del veterinario no es válida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    if (data is! Map<String, dynamic>) {
+      return null;
+    }
+
+    return Veterinarian.fromApi(data);
   }
 
   // =========================================================
@@ -138,39 +213,27 @@ class VeterinarianRepository {
     String professionalLicense, {
     int? excludeVeterinarianId,
   }) async {
-    final database = await _databaseHelper.database;
-
-    final String license = professionalLicense.trim();
+    final String license = professionalLicense.trim().toLowerCase();
 
     if (license.isEmpty) {
       return false;
     }
 
-    String where = 'professional_license = ?';
+    final List<Veterinarian> veterinarians = await getAllVeterinarians();
 
-    final List<Object?> whereArgs = [
-      license,
-    ];
+    return veterinarians.any(
+      (Veterinarian veterinarian) {
+        final String currentLicense =
+            veterinarian.professionalLicense?.trim().toLowerCase() ?? '';
 
-    if (excludeVeterinarianId != null) {
-      where += ' AND id != ?';
+        final bool sameLicense = currentLicense == license;
 
-      whereArgs.add(
-        excludeVeterinarianId,
-      );
-    }
+        final bool excluded = excludeVeterinarianId != null &&
+            veterinarian.id == excludeVeterinarianId;
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.veterinariansTable,
-      columns: [
-        'id',
-      ],
-      where: where,
-      whereArgs: whereArgs,
-      limit: 1,
+        return sameLicense && !excluded;
+      },
     );
-
-    return result.isNotEmpty;
   }
 
   // =========================================================
@@ -188,117 +251,140 @@ class VeterinarianRepository {
       );
     }
 
-    final String name = veterinarian.name.trim();
-
-    if (name.isEmpty) {
+    if (veterinarian.name.trim().isEmpty) {
       throw Exception(
         'El nombre del veterinario es obligatorio.',
       );
     }
 
-    final String? license = _cleanNullable(
-      veterinarian.professionalLicense,
-    );
-
-    if (license != null) {
-      final bool exists = await professionalLicenseExists(
-        license,
-        excludeVeterinarianId: veterinarianId,
+    if (veterinarian.professionalLicense?.trim().isEmpty ?? true) {
+      throw Exception(
+        'La cédula profesional es obligatoria.',
       );
-
-      if (exists) {
-        throw Exception(
-          'Ya existe otro veterinario con esa cédula profesional.',
-        );
-      }
     }
 
-    final database = await _databaseHelper.database;
-
-    final Veterinarian updated = veterinarian.copyWith(
-      name: name,
-      professionalLicense: license,
-      phone: _cleanNullable(
-        veterinarian.phone,
-      ),
-      email: _cleanNullable(
-        veterinarian.email,
-      ),
-      specialty: _cleanNullable(
-        veterinarian.specialty,
-      ),
-      observations: _cleanNullable(
-        veterinarian.observations,
-      ),
+    final response = await ApiClient.instance.put(
+      '/veterinarios/$veterinarianId',
+      body: veterinarian.toApi(),
     );
 
-    final Map<String, dynamic> data = updated.toMap();
+    if (response.statusCode == 401) {
+      throw Exception(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
 
-    data.remove('id');
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para editar veterinarios.',
+      );
+    }
 
-    return database.update(
-      DatabaseHelper.veterinariansTable,
-      data,
-      where: 'id = ?',
-      whereArgs: [
-        veterinarianId,
-      ],
-    );
+    if (response.statusCode == 404) {
+      throw Exception(
+        'El veterinario ya no existe.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw Exception(
+        _extractMessage(
+          response.body,
+          'Los datos del veterinario no son válidos.',
+        ),
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudo actualizar el veterinario. '
+        'Código ${response.statusCode}.',
+      );
+    }
+
+    return 1;
   }
 
   // =========================================================
-  // ELIMINAR
+  // DESACTIVAR
   // =========================================================
 
   Future<int> deleteVeterinarian(
     int veterinarianId,
   ) async {
-    final database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> vaccinations = await database.query(
-      DatabaseHelper.vaccinationsTable,
-      columns: [
-        'id',
-      ],
-      where: 'veterinarian_id = ?',
-      whereArgs: [
-        veterinarianId,
-      ],
-      limit: 1,
+    final response = await ApiClient.instance.delete(
+      '/veterinarios/$veterinarianId',
     );
 
-    if (vaccinations.isNotEmpty) {
+    if (response.statusCode == 401) {
       throw Exception(
-        'No se puede eliminar el veterinario porque tiene vacunaciones registradas.',
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
       );
     }
 
-    return database.delete(
-      DatabaseHelper.veterinariansTable,
-      where: 'id = ?',
-      whereArgs: [
-        veterinarianId,
-      ],
-    );
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para desactivar veterinarios.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw Exception(
+        'El veterinario ya no existe.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw Exception(
+        _extractMessage(
+          response.body,
+          'No se pudo desactivar el veterinario.',
+        ),
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'No se pudo desactivar el veterinario. '
+        'Código ${response.statusCode}.',
+      );
+    }
+
+    return 1;
   }
 
   // =========================================================
   // AUXILIAR
   // =========================================================
 
-  String? _cleanNullable(
-    String? value,
+  String _extractMessage(
+    String body,
+    String fallback,
   ) {
-    if (value == null) {
-      return null;
+    try {
+      final dynamic decoded = jsonDecode(body);
+
+      if (decoded is Map<String, dynamic>) {
+        final dynamic errors = decoded['errors'];
+
+        if (errors is Map<String, dynamic>) {
+          for (final dynamic value in errors.values) {
+            if (value is List && value.isNotEmpty) {
+              return value.first.toString();
+            }
+          }
+        }
+
+        final dynamic message = decoded['message'];
+
+        if (message != null && message.toString().trim().isNotEmpty) {
+          return message.toString();
+        }
+      }
+    } catch (_) {
+      // Se utiliza el mensaje predeterminado.
     }
 
-    final String cleaned = value.trim();
-
-    if (cleaned.isEmpty) {
-      return null;
-    }
-
-    return cleaned;
+    return fallback;
   }
 }

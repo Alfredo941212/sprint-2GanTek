@@ -9,6 +9,7 @@ import 'recover_password_screen.dart';
 import 'register_user_screen.dart';
 import '../../../../core/security/login_attempt_manager.dart';
 import 'dart:async';
+import '../../data/services/api_auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -26,6 +27,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _passwordController = TextEditingController();
 
   final AuthRepository _authRepository = AuthRepository();
+
+  final ApiAuthService _apiAuthService = ApiAuthService();
 
   Timer? _lockTimer;
   int _remainingSeconds = 0;
@@ -74,6 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!isValid) {
       return;
     }
+
     if (_attemptManager.isBlocked) {
       _startLockTimer();
 
@@ -84,27 +88,62 @@ class _LoginScreenState extends State<LoginScreen> {
 
       return;
     }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final UserModel? user = await _authRepository.login(
-        email: _emailController.text.trim(),
+      final String email = _emailController.text.trim().toLowerCase();
+
+      // 1. Iniciar sesión en Laravel.
+      // Laravel devuelve el usuario y el token Sanctum.
+      final Map<String, dynamic> response = await _apiAuthService.login(
+        email: email,
         password: _passwordController.text,
       );
 
-      if (user == null) {
-        _showMessage(
-          'Correo o contraseña incorrectos.',
+      // 2. Obtener los datos del usuario enviados por Laravel.
+      final dynamic serverUser = response['user'];
+
+      if (serverUser is! Map<String, dynamic>) {
+        throw Exception(
+          'El servidor no devolvió los datos del usuario.',
         );
-        return;
       }
-      SessionManager.instance.setCurrentUser(user);
+
+      final String serverName = serverUser['name']?.toString().trim() ?? '';
+
+      final String serverEmail =
+          serverUser['email']?.toString().trim().toLowerCase() ?? email;
+
+      // 3. Buscar si ya existe una copia local.
+      UserModel? user = await _authRepository.getUserByEmail(
+        serverEmail,
+      );
+
+      // 4. Si no existe en SQLite, crearla automáticamente.
+      if (user == null) {
+        user = await _authRepository.createLocalUser(
+          fullName: serverName.isNotEmpty ? serverName : 'Usuario GanTek',
+          email: serverEmail,
+          phone: '',
+        );
+      }
+
+      // 5. Guardar el usuario de la sesión.
+      await SessionManager.instance.setCurrentUser(
+        user,
+      );
+
+      // Inicio de sesión correcto: reiniciar intentos fallidos.
+      _attemptManager.reset();
+
       if (!mounted) {
         return;
       }
 
+      // 6. Entrar al Home.
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -112,6 +151,12 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } catch (error) {
+      _attemptManager.registerFailedAttempt();
+
+      if (_attemptManager.isBlocked) {
+        _startLockTimer();
+      }
+
       _showMessage(
         'No fue posible iniciar sesión: $error',
       );

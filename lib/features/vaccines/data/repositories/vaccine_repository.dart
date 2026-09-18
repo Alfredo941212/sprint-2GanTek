@@ -1,119 +1,166 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:convert';
 
-import '../../../../core/database/database_helper.dart';
-import '../../../../core/session/session_manager.dart';
+import '../../../../core/network/api_client.dart';
 import '../models/vaccine_record.dart';
 
 class VaccineRepository {
   VaccineRepository({
-    DatabaseHelper? databaseHelper,
-  }) : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
+    ApiClient? apiClient,
+  }) : _apiClient = apiClient ?? ApiClient.instance;
 
-  final DatabaseHelper _databaseHelper;
-
-  int _requireUserId() {
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión activa.',
-      );
-    }
-
-    return userId;
-  }
+  final ApiClient _apiClient;
 
   Future<int> insertVaccineRecord(
     VaccineRecord vaccine,
   ) async {
-    final Database database = await _databaseHelper.database;
+    final response = await _apiClient.post(
+      '/vacunaciones',
+      body: vaccine.toCreateApi(),
+    );
 
-    final int userId = _requireUserId();
-
-    if (vaccine.userId != userId) {
+    if (response.statusCode == 401) {
       throw StateError(
-        'La vacuna no pertenece al usuario activo.',
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
       );
     }
 
-    final Map<String, dynamic> data = vaccine.toMap();
+    if (response.statusCode == 403) {
+      throw StateError(
+        'No tienes permiso para registrar esta vacunación.',
+      );
+    }
 
-    data.remove('id');
+    if (response.statusCode == 422) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'Revisa los datos de la vacunación.',
+        ),
+      );
+    }
 
-    return database.insert(
-      DatabaseHelper.vaccinesTable,
-      data,
-      conflictAlgorithm: ConflictAlgorithm.abort,
-    );
+    if (response.statusCode != 201) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'No fue posible registrar la vacunación.',
+        ),
+      );
+    }
+
+    final Map<String, dynamic> json =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    final dynamic data = json['data'];
+
+    if (data is! Map<String, dynamic>) {
+      throw StateError(
+        'El servidor no devolvió la vacunación registrada.',
+      );
+    }
+
+    final VaccineRecord created = VaccineRecord.fromApi(data);
+
+    if (created.id == null) {
+      throw StateError(
+        'El servidor no devolvió el identificador de la vacunación.',
+      );
+    }
+
+    return created.id!;
   }
 
   Future<List<VaccineRecord>> getAllVaccines() async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.vaccinesTable,
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'application_date DESC',
+    final response = await _apiClient.get(
+      '/vacunaciones',
     );
 
-    return result.map(VaccineRecord.fromMap).toList();
+    if (response.statusCode == 401) {
+      throw StateError(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'No fue posible cargar las vacunaciones.',
+        ),
+      );
+    }
+
+    final Map<String, dynamic> json =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    final List<dynamic> data = json['data'] as List<dynamic>? ?? <dynamic>[];
+
+    return data
+        .whereType<Map<String, dynamic>>()
+        .map(VaccineRecord.fromApi)
+        .toList();
   }
 
   Future<VaccineRecord?> getVaccineById(
     int id,
   ) async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.vaccinesTable,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        id,
-        userId,
-      ],
-      limit: 1,
+    final response = await _apiClient.get(
+      '/vacunaciones/$id',
     );
 
-    if (result.isEmpty) {
+    if (response.statusCode == 404) {
       return null;
     }
 
-    return VaccineRecord.fromMap(
-      result.first,
-    );
+    if (response.statusCode == 401) {
+      throw StateError(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw StateError(
+        'No tienes permiso para consultar esta vacunación.',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'No fue posible consultar la vacunación.',
+        ),
+      );
+    }
+
+    final Map<String, dynamic> json =
+        jsonDecode(response.body) as Map<String, dynamic>;
+
+    final dynamic data = json['data'];
+
+    if (data is! Map<String, dynamic>) {
+      return null;
+    }
+
+    return VaccineRecord.fromApi(data);
   }
 
   Future<List<VaccineRecord>> getVaccinesByCattle(
     int cattleId,
   ) async {
-    final Database database = await _databaseHelper.database;
+    final List<VaccineRecord> vaccinations = await getAllVaccines();
 
-    final int userId = _requireUserId();
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.vaccinesTable,
-      where: 'cattle_id = ? AND user_id = ?',
-      whereArgs: [
-        cattleId,
-        userId,
-      ],
-      orderBy: 'application_date DESC',
-    );
-
-    return result.map(VaccineRecord.fromMap).toList();
+    return vaccinations
+        .where(
+          (VaccineRecord vaccination) => vaccination.cattleId == cattleId,
+        )
+        .toList();
   }
 
   Future<List<VaccineRecord>> getUpcomingVaccines({
     int days = 30,
   }) async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
+    final List<VaccineRecord> vaccinations = await getAllVaccines();
 
     final DateTime now = DateTime.now();
 
@@ -127,29 +174,35 @@ class VaccineRepository {
       Duration(days: days),
     );
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.vaccinesTable,
-      where: '''
-        user_id = ?
-        AND next_dose_date IS NOT NULL
-        AND next_dose_date >= ?
-        AND next_dose_date <= ?
-      ''',
-      whereArgs: [
-        userId,
-        today.toIso8601String(),
-        limit.toIso8601String(),
-      ],
-      orderBy: 'next_dose_date ASC',
+    final List<VaccineRecord> result = vaccinations.where(
+      (VaccineRecord vaccination) {
+        final DateTime? nextDate = vaccination.nextDoseDate;
+
+        if (nextDate == null) {
+          return false;
+        }
+
+        final DateTime date = DateTime(
+          nextDate.year,
+          nextDate.month,
+          nextDate.day,
+        );
+
+        return !date.isBefore(today) && !date.isAfter(limit);
+      },
+    ).toList();
+
+    result.sort(
+      (VaccineRecord a, VaccineRecord b) => a.nextDoseDate!.compareTo(
+        b.nextDoseDate!,
+      ),
     );
 
-    return result.map(VaccineRecord.fromMap).toList();
+    return result;
   }
 
   Future<List<VaccineRecord>> getOverdueVaccines() async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
+    final List<VaccineRecord> vaccinations = await getAllVaccines();
 
     final DateTime now = DateTime.now();
 
@@ -159,21 +212,31 @@ class VaccineRepository {
       now.day,
     );
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.vaccinesTable,
-      where: '''
-        user_id = ?
-        AND next_dose_date IS NOT NULL
-        AND next_dose_date < ?
-      ''',
-      whereArgs: [
-        userId,
-        today.toIso8601String(),
-      ],
-      orderBy: 'next_dose_date ASC',
+    final List<VaccineRecord> result = vaccinations.where(
+      (VaccineRecord vaccination) {
+        final DateTime? nextDate = vaccination.nextDoseDate;
+
+        if (nextDate == null) {
+          return false;
+        }
+
+        final DateTime date = DateTime(
+          nextDate.year,
+          nextDate.month,
+          nextDate.day,
+        );
+
+        return date.isBefore(today);
+      },
+    ).toList();
+
+    result.sort(
+      (VaccineRecord a, VaccineRecord b) => a.nextDoseDate!.compareTo(
+        b.nextDoseDate!,
+      ),
     );
 
-    return result.map(VaccineRecord.fromMap).toList();
+    return result;
   }
 
   Future<int> updateVaccineRecord(
@@ -181,143 +244,145 @@ class VaccineRepository {
   ) async {
     if (vaccine.id == null) {
       throw ArgumentError(
-        'La vacuna no tiene identificador.',
+        'La vacunación no tiene identificador.',
       );
     }
 
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    if (vaccine.userId != userId) {
-      throw StateError(
-        'La vacuna no pertenece al usuario activo.',
-      );
-    }
-
-    final Map<String, dynamic> data = vaccine.toMap();
-
-    data.remove('id');
-
-    return database.update(
-      DatabaseHelper.vaccinesTable,
-      data,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        vaccine.id,
-        userId,
-      ],
+    final response = await _apiClient.put(
+      '/vacunaciones/${vaccine.id}',
+      body: vaccine.toUpdateApi(),
     );
+
+    if (response.statusCode == 401) {
+      throw StateError(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw StateError(
+        'No tienes permiso para modificar esta vacunación.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw StateError(
+        'La vacunación ya no existe.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'Revisa los datos de la vacunación.',
+        ),
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'No fue posible actualizar la vacunación.',
+        ),
+      );
+    }
+
+    return 1;
   }
 
   Future<int> deleteVaccineRecord(
     int id,
   ) async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    return database.delete(
-      DatabaseHelper.vaccinesTable,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        id,
-        userId,
-      ],
+    final response = await _apiClient.delete(
+      '/vacunaciones/$id',
     );
+
+    if (response.statusCode == 401) {
+      throw StateError(
+        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw StateError(
+        'No tienes permiso para eliminar esta vacunación.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw StateError(
+        'La vacunación ya no existe.',
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(
+        _extractMessage(
+          response.body,
+          'No fue posible eliminar la vacunación.',
+        ),
+      );
+    }
+
+    return 1;
   }
 
   Future<int> countVaccines() async {
-    final Database database = await _databaseHelper.database;
+    final List<VaccineRecord> vaccinations = await getAllVaccines();
 
-    final int userId = _requireUserId();
-
-    final int count = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
-                ''',
-            [userId],
-          ),
-        ) ??
-        0;
-
-    return count;
+    return vaccinations.length;
   }
 
   Future<int> countUpcomingVaccines({
     int days = 30,
   }) async {
-    final Database database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final DateTime now = DateTime.now();
-
-    final DateTime today = DateTime(
-      now.year,
-      now.month,
-      now.day,
+    final List<VaccineRecord> vaccinations = await getUpcomingVaccines(
+      days: days,
     );
 
-    final DateTime limit = today.add(
-      Duration(days: days),
-    );
-
-    final int count = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
-                  AND next_dose_date IS NOT NULL
-                  AND next_dose_date >= ?
-                  AND next_dose_date <= ?
-                ''',
-            [
-              userId,
-              today.toIso8601String(),
-              limit.toIso8601String(),
-            ],
-          ),
-        ) ??
-        0;
-
-    return count;
+    return vaccinations.length;
   }
 
   Future<int> countOverdueVaccines() async {
-    final Database database = await _databaseHelper.database;
+    final List<VaccineRecord> vaccinations = await getOverdueVaccines();
 
-    final int userId = _requireUserId();
+    return vaccinations.length;
+  }
 
-    final DateTime now = DateTime.now();
+  String _extractMessage(
+    String responseBody,
+    String fallback,
+  ) {
+    try {
+      final dynamic decoded = jsonDecode(responseBody);
 
-    final DateTime today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
+      if (decoded is Map<String, dynamic>) {
+        final dynamic message = decoded['message'];
 
-    final int count = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
-                  AND next_dose_date IS NOT NULL
-                  AND next_dose_date < ?
-                ''',
-            [
-              userId,
-              today.toIso8601String(),
-            ],
-          ),
-        ) ??
-        0;
+        if (message is String && message.trim().isNotEmpty) {
+          return message;
+        }
 
-    return count;
+        final dynamic errors = decoded['errors'];
+
+        if (errors is Map<String, dynamic>) {
+          for (final dynamic value in errors.values) {
+            if (value is List && value.isNotEmpty) {
+              return value.first.toString();
+            }
+
+            if (value != null) {
+              return value.toString();
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // Se usa el mensaje predeterminado.
+    }
+
+    return fallback;
   }
 }

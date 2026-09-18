@@ -47,7 +47,7 @@ class _CattleListScreenState extends State<CattleListScreen> {
   }
 
   Future<List<Cattle>> _loadCattleWithLots() async {
-    final List<Cattle> cattle = await _repository.getAllCattle();
+    final List<Cattle> cattle = await _repository.getActiveCattle();
 
     final List<Lot> lots = await _lotRepository.getAllLots();
 

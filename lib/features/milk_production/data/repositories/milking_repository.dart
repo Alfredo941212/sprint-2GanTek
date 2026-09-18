@@ -1,6 +1,8 @@
 import '../../../../core/database/database_helper.dart';
 import '../../../../core/session/session_manager.dart';
 import '../models/milking_record.dart';
+import 'dart:convert';
+import '../../../../core/network/api_client.dart';
 
 class MilkingRepository {
   MilkingRepository({
@@ -25,38 +27,100 @@ class MilkingRepository {
     return userId;
   }
 
+  Future<List<Map<String, dynamic>>> _getApiMilkings() async {
+    final response = await ApiClient.instance.get(
+      '/ordenios',
+    );
+
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'No fue posible cargar los ordeños '
+        '(${response.statusCode}).',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
+    );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'El servidor devolvió una respuesta inválida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    print('========== API ORDEÑOS ==========');
+    print('Status: ${response.statusCode}');
+    print('Data: $data');
+    print('=================================');
+
+    if (data is! List) {
+      throw Exception(
+        'El servidor no devolvió la lista de ordeños.',
+      );
+    }
+
+    return data.whereType<Map<String, dynamic>>().toList();
+  }
+
   Future<List<MilkingRecord>> getRecentMilkingsByCattle({
     required int cattleId,
     int limit = 10,
   }) async {
-    final database = await _databaseHelper.database;
-    final int userId = _requireUserId();
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.milkingRecordsTable,
-      where: '''
-      user_id = ?
-      AND cattle_id = ?
-    ''',
-      whereArgs: [
-        userId,
-        cattleId,
-      ],
-      orderBy: '''
-      date DESC,
-      milking_number DESC
-    ''',
-      limit: limit,
+    final List<MilkingRecord> result = [];
+
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? milkingCattleId = _toInt(
+        milking['ganado_id'],
+      );
+
+      if (milkingCattleId != cattleId) {
+        continue;
+      }
+
+      result.add(
+        MilkingRecord.fromApi(
+          milking,
+        ),
+      );
+    }
+
+    result.sort(
+      (MilkingRecord a, MilkingRecord b) {
+        final int dateComparison = b.date.compareTo(a.date);
+
+        if (dateComparison != 0) {
+          return dateComparison;
+        }
+
+        return b.milkingNumber.compareTo(
+          a.milkingNumber,
+        );
+      },
     );
 
-    return result
-        .map(
-          (Map<String, dynamic> row) => MilkingRecord.fromMap(row),
-        )
-        .toList();
+    if (result.length > limit) {
+      return result.take(limit).toList();
+    }
+
+    return result;
   }
   // =========================================================
   // REGISTRAR ORDEÑA
+  // =========================================================
+
+  // =========================================================
+  // REGISTRAR ORDEÑA EN API REST
   // =========================================================
 
   Future<int> insertMilking({
@@ -72,107 +136,125 @@ class MilkingRepository {
       );
     }
 
-    final database = await _databaseHelper.database;
+    final String? cleanShift = shift?.trim();
+    final String? cleanObservations = observations?.trim();
 
-    final int userId = _requireUserId();
-
-    final String dateText = _formatDate(date);
-
-    return database.transaction<int>(
-      (transaction) async {
-        // ---------------------------------------------
-        // Verificar que la vaca pertenece al usuario
-        // ---------------------------------------------
-
-        final List<Map<String, dynamic>> cattleResult = await transaction.query(
-          DatabaseHelper.cattleTable,
-          columns: [
-            'id',
-            'lot_id',
-            'sex',
-            'productive_status',
-            'status',
-          ],
-          where: '''
-            id = ?
-            AND user_id = ?
-          ''',
-          whereArgs: [
-            cattleId,
-            userId,
-          ],
-          limit: 1,
-        );
-
-        if (cattleResult.isEmpty) {
-          throw Exception(
-            'El animal seleccionado no existe.',
-          );
-        }
-
-        final Map<String, dynamic> cattle = cattleResult.first;
-
-        if (cattle['status'] != 'Activo') {
-          throw Exception(
-            'No se pueden registrar ordeñas para un animal inactivo.',
-          );
-        }
-
-        if (cattle['sex'] != 'Hembra') {
-          throw Exception(
-            'Solo se puede registrar producción de leche para hembras.',
-          );
-        }
-
-        if (cattle['productive_status'] != 'En producción') {
-          throw Exception(
-            'La vaca seleccionada no está marcada como En producción.',
-          );
-        }
-
-        final int? historicalLotId = (cattle['lot_id'] as num?)?.toInt();
-
-        // ---------------------------------------------
-        // Calcular siguiente número de ordeña
-        // ---------------------------------------------
-
-        final List<Map<String, dynamic>> numberResult =
-            await transaction.rawQuery(
-          '''
-          SELECT COALESCE(
-            MAX(milking_number),
-            0
-          ) + 1 AS next_number
-          FROM ${DatabaseHelper.milkingRecordsTable}
-          WHERE cattle_id = ?
-            AND date = ?
-          ''',
-          [
-            cattleId,
-            dateText,
-          ],
-        );
-
-        final int milkingNumber =
-            (numberResult.first['next_number'] as num?)?.toInt() ?? 1;
-
-        final MilkingRecord record = MilkingRecord(
-          userId: userId,
-          cattleId: cattleId,
-          historicalLotId: historicalLotId,
-          date: date,
-          milkingNumber: milkingNumber,
-          shift: shift,
-          liters: liters,
-          observations: observations,
-          createdAt: DateTime.now(),
-        );
-
-        return transaction.insert(
-          DatabaseHelper.milkingRecordsTable,
-          record.toMap(),
-        );
+    final response = await ApiClient.instance.post(
+      '/ordenios',
+      body: {
+        'ganado_id': cattleId,
+        'fecha': _formatDate(date),
+        'litros': liters,
+        if (cleanShift != null && cleanShift.isNotEmpty) 'turno': cleanShift,
+        if (cleanObservations != null && cleanObservations.isNotEmpty)
+          'observaciones': cleanObservations,
       },
+    );
+
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    dynamic decoded;
+
+    try {
+      decoded = jsonDecode(
+        response.body,
+      );
+    } catch (_) {
+      decoded = null;
+    }
+
+    if (response.statusCode == 201) {
+      if (decoded is Map<String, dynamic>) {
+        final dynamic data = decoded['data'];
+
+        if (data is Map<String, dynamic>) {
+          final int? id = _toInt(
+            data['id'],
+          );
+
+          if (id != null) {
+            return id;
+          }
+        }
+
+        // Algunos controladores pueden devolver directamente
+        // los datos del registro.
+        final int? id = _toInt(
+          decoded['id'],
+        );
+
+        if (id != null) {
+          return id;
+        }
+      }
+
+      // El registro sí fue creado aunque el servidor
+      // no haya devuelto el ID en el formato esperado.
+      return 0;
+    }
+
+    if (response.statusCode == 422) {
+      String message = 'Los datos de la ordeña no son válidos.';
+
+      if (decoded is Map<String, dynamic>) {
+        final dynamic serverMessage = decoded['message'];
+
+        if (serverMessage != null &&
+            serverMessage.toString().trim().isNotEmpty) {
+          message = serverMessage.toString();
+        }
+
+        final dynamic errors = decoded['errors'];
+
+        if (errors is Map) {
+          for (final dynamic value in errors.values) {
+            if (value is List && value.isNotEmpty) {
+              message = value.first.toString();
+              break;
+            }
+
+            if (value != null) {
+              message = value.toString();
+              break;
+            }
+          }
+        }
+      }
+
+      throw Exception(
+        message,
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para registrar esta ordeña.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw Exception(
+        'No se encontró el animal seleccionado.',
+      );
+    }
+
+    String message =
+        'No fue posible registrar la ordeña (${response.statusCode}).';
+
+    if (decoded is Map<String, dynamic>) {
+      final dynamic serverMessage = decoded['message'];
+
+      if (serverMessage != null && serverMessage.toString().trim().isNotEmpty) {
+        message = serverMessage.toString();
+      }
+    }
+
+    throw Exception(
+      message,
     );
   }
 
@@ -183,24 +265,49 @@ class MilkingRepository {
   Future<List<MilkingRecord>> getMilkingsByDate(
     DateTime date,
   ) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    final List<MilkingRecord> result = [];
 
-    final List<Map<String, dynamic>> maps = await database.query(
-      DatabaseHelper.milkingRecordsTable,
-      where: '''
-        user_id = ?
-        AND date = ?
-      ''',
-      whereArgs: [
-        userId,
-        _formatDate(date),
-      ],
-      orderBy: 'cattle_id ASC, milking_number ASC',
+    for (final Map<String, dynamic> milking in milkings) {
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
+
+      if (milkingDate == null) {
+        continue;
+      }
+
+      final bool sameDate = milkingDate.year == date.year &&
+          milkingDate.month == date.month &&
+          milkingDate.day == date.day;
+
+      if (!sameDate) {
+        continue;
+      }
+
+      result.add(
+        MilkingRecord.fromApi(
+          milking,
+        ),
+      );
+    }
+
+    result.sort(
+      (MilkingRecord a, MilkingRecord b) {
+        final int cattleComparison = a.cattleId.compareTo(b.cattleId);
+
+        if (cattleComparison != 0) {
+          return cattleComparison;
+        }
+
+        return a.milkingNumber.compareTo(
+          b.milkingNumber,
+        );
+      },
     );
 
-    return maps.map(MilkingRecord.fromMap).toList();
+    return result;
   }
 
   // =========================================================
@@ -211,26 +318,51 @@ class MilkingRepository {
     required int cattleId,
     required DateTime date,
   }) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    final List<MilkingRecord> result = [];
 
-    final List<Map<String, dynamic>> maps = await database.query(
-      DatabaseHelper.milkingRecordsTable,
-      where: '''
-        user_id = ?
-        AND cattle_id = ?
-        AND date = ?
-      ''',
-      whereArgs: [
-        userId,
-        cattleId,
-        _formatDate(date),
-      ],
-      orderBy: 'milking_number ASC',
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? milkingCattleId = _toInt(
+        milking['ganado_id'],
+      );
+
+      if (milkingCattleId != cattleId) {
+        continue;
+      }
+
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
+
+      if (milkingDate == null) {
+        continue;
+      }
+
+      final bool sameDate = milkingDate.year == date.year &&
+          milkingDate.month == date.month &&
+          milkingDate.day == date.day;
+
+      if (!sameDate) {
+        continue;
+      }
+
+      result.add(
+        MilkingRecord.fromApi(
+          milking,
+        ),
+      );
+    }
+
+    result.sort(
+      (MilkingRecord a, MilkingRecord b) {
+        return a.milkingNumber.compareTo(
+          b.milkingNumber,
+        );
+      },
     );
 
-    return maps.map(MilkingRecord.fromMap).toList();
+    return result;
   }
 
   // =========================================================
@@ -240,27 +372,33 @@ class MilkingRepository {
   Future<double> getDailyProduction(
     DateTime date,
   ) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND date = ?
-      ''',
-      [
-        userId,
-        _formatDate(date),
-      ],
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      if (milkingDate == null) {
+        continue;
+      }
+
+      final bool sameDate = milkingDate.year == date.year &&
+          milkingDate.month == date.month &&
+          milkingDate.day == date.day;
+
+      if (!sameDate) {
+        continue;
+      }
+
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   // =========================================================
@@ -271,29 +409,41 @@ class MilkingRepository {
     required int cattleId,
     required DateTime date,
   }) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND cattle_id = ?
-        AND date = ?
-      ''',
-      [
-        userId,
-        cattleId,
-        _formatDate(date),
-      ],
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? milkingCattleId = _toInt(
+        milking['ganado_id'],
+      );
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      if (milkingCattleId != cattleId) {
+        continue;
+      }
+
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
+
+      if (milkingDate == null) {
+        continue;
+      }
+
+      final bool sameDate = milkingDate.year == date.year &&
+          milkingDate.month == date.month &&
+          milkingDate.day == date.day;
+
+      if (!sameDate) {
+        continue;
+      }
+
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   // =========================================================
@@ -304,29 +454,39 @@ class MilkingRepository {
     required int lotId,
     required DateTime date,
   }) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND historical_lot_id = ?
-        AND date = ?
-      ''',
-      [
-        userId,
-        lotId,
-        _formatDate(date),
-      ],
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? historicalLotId = _toInt(milking['lote_historico_id']);
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      if (historicalLotId != lotId) {
+        continue;
+      }
+
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
+
+      if (milkingDate == null) {
+        continue;
+      }
+
+      final bool sameDate = milkingDate.year == date.year &&
+          milkingDate.month == date.month &&
+          milkingDate.day == date.day;
+
+      if (!sameDate) {
+        continue;
+      }
+
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   // =========================================================
@@ -428,43 +588,35 @@ class MilkingRepository {
     required int lotId,
     required DateTime month,
   }) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? historicalLotId = _toInt(milking['lote_historico_id']);
 
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
+      if (historicalLotId != lotId) {
+        continue;
+      }
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND historical_lot_id = ?
-        AND date >= ?
-        AND date < ?
-      ''',
-      [
-        userId,
-        lotId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+      final DateTime? milkingDate = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      if (milkingDate == null) {
+        continue;
+      }
+
+      if (milkingDate.year != month.year || milkingDate.month != month.month) {
+        continue;
+      }
+
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   Future<Map<int, double>> getDailyProductionForCattleInMonth({
@@ -533,86 +685,78 @@ class MilkingRepository {
   Future<int> deleteMilking(
     int milkingId,
   ) async {
-    final database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    return database.delete(
-      DatabaseHelper.milkingRecordsTable,
-      where: '''
-        id = ?
-        AND user_id = ?
-      ''',
-      whereArgs: [
-        milkingId,
-        userId,
-      ],
+    final response = await ApiClient.instance.delete(
+      '/ordenios/$milkingId',
     );
+
+    if (response.statusCode == 200 || response.statusCode == 204) {
+      return 1;
+    }
+
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para eliminar esta ordeña.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw Exception(
+        'La ordeña ya no existe o no fue encontrada.',
+      );
+    }
+
+    String message =
+        'No fue posible eliminar la ordeña (${response.statusCode}).';
+
+    try {
+      final dynamic decoded = jsonDecode(response.body);
+
+      if (decoded is Map<String, dynamic>) {
+        final dynamic serverMessage = decoded['message'];
+
+        if (serverMessage != null &&
+            serverMessage.toString().trim().isNotEmpty) {
+          message = serverMessage.toString();
+        }
+      }
+    } catch (_) {
+      // Conserva el mensaje predeterminado.
+    }
+
+    throw Exception(message);
   }
 
   Future<Map<int, double>> getDailyProductionForMonth(
     DateTime month,
   ) async {
-    final database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
-
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-    SELECT
-      date,
-      COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-    FROM ${DatabaseHelper.milkingRecordsTable}
-    WHERE user_id = ?
-      AND date >= ?
-      AND date < ?
-    GROUP BY date
-    ORDER BY date ASC
-    ''',
-      [
-        userId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final Map<int, double> productionByDay = {};
-    // =========================================================
-    // FORMATO DE GRAFICA
-    // =========================================================
-    for (final Map<String, dynamic> row in result) {
-      final String? dateText = row['date']?.toString();
 
-      if (dateText == null) {
-        continue;
-      }
-
+    for (final Map<String, dynamic> milking in milkings) {
       final DateTime? date = DateTime.tryParse(
-        dateText,
+        milking['fecha']?.toString() ?? '',
       );
 
       if (date == null) {
         continue;
       }
 
-      final double total = (row['total'] as num?)?.toDouble() ?? 0.0;
+      if (date.year != month.year || date.month != month.month) {
+        continue;
+      }
 
-      productionByDay[date.day] = total;
+      final double liters = _toDouble(
+        milking['litros'],
+      );
+
+      productionByDay[date.day] = (productionByDay[date.day] ?? 0.0) + liters;
     }
 
     return productionByDay;
@@ -624,57 +768,40 @@ class MilkingRepository {
   Future<Map<String, double>> getMonthlyProductionByLots(
     DateTime month,
   ) async {
-    final database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
-
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-    SELECT
-      l.name AS lot_name,
-      COALESCE(
-        SUM(m.liters),
-        0
-      ) AS total
-    FROM ${DatabaseHelper.milkingRecordsTable} m
-    INNER JOIN ${DatabaseHelper.lotsTable} l
-      ON l.id = m.historical_lot_id
-    WHERE m.user_id = ?
-      AND m.date >= ?
-      AND m.date < ?
-    GROUP BY
-      m.historical_lot_id,
-      l.name
-    ORDER BY
-      total DESC
-    ''',
-      [
-        userId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final Map<String, double> productionByLot = {};
 
-    for (final Map<String, dynamic> row in result) {
-      final String lotName = row['lot_name']?.toString().trim() ?? 'Sin lote';
+    for (final Map<String, dynamic> milking in milkings) {
+      final DateTime? date = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
 
-      final double total = (row['total'] as num?)?.toDouble() ?? 0.0;
+      if (date == null) {
+        continue;
+      }
 
-      productionByLot[lotName] = total;
+      if (date.year != month.year || date.month != month.month) {
+        continue;
+      }
+
+      final dynamic lotData = milking['lote_historico'];
+
+      String lotName = 'Sin lote';
+
+      if (lotData is Map<String, dynamic>) {
+        final String name = lotData['nombre']?.toString().trim() ?? '';
+
+        if (name.isNotEmpty) {
+          lotName = name;
+        }
+      }
+
+      final double liters = _toDouble(
+        milking['litros'],
+      );
+
+      productionByLot[lotName] = (productionByLot[lotName] ?? 0.0) + liters;
     }
 
     return productionByLot;
@@ -690,5 +817,38 @@ class MilkingRepository {
     final String day = date.day.toString().padLeft(2, '0');
 
     return '$year-$month-$day';
+  }
+
+  int? _toInt(
+    dynamic value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(
+      value.toString(),
+    );
+  }
+
+  double _toDouble(
+    dynamic value,
+  ) {
+    if (value == null) {
+      return 0.0;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value.toString(),
+        ) ??
+        0.0;
   }
 }

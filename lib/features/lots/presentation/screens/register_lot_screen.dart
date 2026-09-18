@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../data/models/lot.dart';
 import '../../data/repositories/lot_repository.dart';
+import '../../../farms/data/models/farm.dart';
+import '../../../farms/data/repositories/farm_repository.dart';
 
 class RegisterLotScreen extends StatefulWidget {
   const RegisterLotScreen({
@@ -20,6 +22,14 @@ class _RegisterLotScreenState extends State<RegisterLotScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final LotRepository _lotRepository = LotRepository();
+
+  final FarmRepository _farmRepository = FarmRepository.instance;
+
+  List<Farm> _farms = [];
+
+  int? _selectedFarmId;
+
+  bool _isLoadingFarms = true;
 
   final TextEditingController _nameController = TextEditingController();
 
@@ -42,16 +52,16 @@ class _RegisterLotScreenState extends State<RegisterLotScreen> {
 
     if (lot != null) {
       _nameController.text = lot.name;
-
       _descriptionController.text = lot.description ?? '';
-
       _minimumProductionController.text =
           lot.minimumProductionPerCow.toStringAsFixed(1);
-
       _status = lot.status;
+
+      _selectedFarmId = lot.farmId;
     } else {
       _minimumProductionController.text = '4.0';
     }
+    _loadFarms();
   }
 
   @override
@@ -61,6 +71,48 @@ class _RegisterLotScreenState extends State<RegisterLotScreen> {
     _minimumProductionController.dispose();
 
     super.dispose();
+  }
+
+  Future<void> _loadFarms() async {
+    try {
+      final List<Farm> farms = await _farmRepository.getAllFarms();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _farms = farms;
+
+        if (!_isEditing && farms.length == 1) {
+          _selectedFarmId = farms.first.id;
+        }
+
+        _isLoadingFarms = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoadingFarms = false;
+      });
+
+      String message = error.toString();
+
+      if (message.startsWith('Exception: ')) {
+        message = message.substring(11);
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+          ),
+        );
+    }
   }
 
   // =========================================================
@@ -101,8 +153,17 @@ class _RegisterLotScreenState extends State<RegisterLotScreen> {
           updatedLot,
         );
       } else {
+        final int? farmId = _selectedFarmId;
+
+        if (farmId == null) {
+          throw Exception(
+            'Selecciona una finca.',
+          );
+        }
+
         final Lot newLot = Lot(
           userId: 0,
+          farmId: farmId,
           name: _nameController.text.trim(),
           description: _descriptionController.text.trim(),
           minimumProductionPerCow: minimumProduction,
@@ -200,6 +261,50 @@ class _RegisterLotScreenState extends State<RegisterLotScreen> {
               ),
 
               const SizedBox(height: 24),
+
+              if (_isLoadingFarms)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 16),
+                  child: LinearProgressIndicator(),
+                )
+              else
+                DropdownButtonFormField<int>(
+                  initialValue: _selectedFarmId,
+                  decoration: const InputDecoration(
+                    labelText: 'Finca',
+                    prefixIcon: Icon(
+                      Icons.agriculture_outlined,
+                    ),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _farms
+                      .where(
+                        (Farm farm) => farm.id != null,
+                      )
+                      .map(
+                        (Farm farm) => DropdownMenuItem<int>(
+                          value: farm.id!,
+                          child: Text(farm.name),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: _isEditing
+                      ? null
+                      : (int? value) {
+                          setState(() {
+                            _selectedFarmId = value;
+                          });
+                        },
+                  validator: (int? value) {
+                    if (!_isEditing && value == null) {
+                      return 'Selecciona una finca.';
+                    }
+
+                    return null;
+                  },
+                ),
+
+              const SizedBox(height: 16),
 
               // =================================================
               // NOMBRE

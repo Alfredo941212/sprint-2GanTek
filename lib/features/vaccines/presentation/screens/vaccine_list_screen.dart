@@ -472,7 +472,7 @@ class _VaccineListScreenState extends State<VaccineListScreen> {
                                   '${_formatDate(vaccine.applicationDate)}',
                                 ),
                                 Text(
-                                  'Dosis: ${vaccine.doseNumber}',
+                                  'Dosis: ${vaccine.dose}',
                                 ),
                                 Text(
                                   nextDoseText,
