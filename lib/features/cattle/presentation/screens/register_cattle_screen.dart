@@ -102,7 +102,7 @@ class _RegisterCattleScreenState extends State<RegisterCattleScreen> {
 
   static const List<String> _statusOptions = [
     'Activo',
-    'Inactivo',
+    'Vendido',
     'Fallecido',
     'Baja',
   ];

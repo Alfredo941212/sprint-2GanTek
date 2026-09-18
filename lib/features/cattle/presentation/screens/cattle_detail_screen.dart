@@ -230,11 +230,12 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
       ) {
         return AlertDialog(
           title: const Text(
-            'Eliminar animal',
+            'Dar de baja animal',
           ),
           content: Text(
-            '¿Deseas eliminar a '
-            '${_displayName()}?',
+            '¿Deseas dar de baja a '
+            '${_displayName()}? '
+            'Su historial de ordeños y vacunaciones se conservará.',
           ),
           actions: [
             TextButton(
@@ -256,7 +257,7 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
                 );
               },
               child: const Text(
-                'Eliminar',
+                'Dar de baja',
               ),
             ),
           ],
@@ -299,13 +300,13 @@ class _CattleDetailScreenState extends State<CattleDetailScreen> {
       ).showSnackBar(
         const SnackBar(
           content: Text(
-            'No fue posible eliminar el animal.',
+            'No fue posible dar de baja el animal.',
           ),
         ),
       );
 
       debugPrint(
-        'Error eliminando ganado: $error',
+        'Error dando de baja ganado: $error',
       );
     }
   }

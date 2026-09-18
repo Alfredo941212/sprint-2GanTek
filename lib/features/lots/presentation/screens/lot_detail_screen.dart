@@ -72,23 +72,32 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
     });
 
     try {
-      final List<Cattle> cattle = await _cattleRepository.getCattleByLot(
-        lotId,
-      );
+      // El ganado general ya se obtiene desde Laravel/MySQL.
+      final List<Cattle> allCattle = await _cattleRepository.getAllCattle();
 
-      final int productiveCattle =
-          await _lotRepository.countProductiveCattleInLot(
-        lotId,
-      );
+      // Filtramos solamente el ganado perteneciente a este lote.
+      final List<Cattle> cattle = allCattle.where(
+        (Cattle animal) {
+          return animal.lotId == lotId && animal.status == 'Activo';
+        },
+      ).toList();
+
+      // Calculamos las vacas productivas usando los datos del servidor.
+      final int productiveCattle = cattle.where(
+        (Cattle animal) {
+          return animal.sex == 'Hembra' &&
+              animal.productiveStatus == 'En producción';
+        },
+      ).length;
 
       final DateTime now = DateTime.now();
 
+      // Producción todavía permanece en SQLite temporalmente.
       final double todayProduction =
           await _milkingRepository.getDailyProductionByLot(
         lotId: lotId,
         date: now,
       );
-      ;
 
       final double monthlyProduction =
           await _milkingRepository.getMonthlyProductionByLot(
@@ -103,11 +112,8 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
       setState(() {
         _cattle = cattle;
         _productiveCattle = productiveCattle;
-
         _todayProduction = todayProduction;
-
         _monthlyProduction = monthlyProduction;
-
         _isLoading = false;
       });
     } catch (error) {
@@ -117,7 +123,6 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
 
       setState(() {
         _errorMessage = _cleanError(error);
-
         _isLoading = false;
       });
 
@@ -132,6 +137,41 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
   // =========================================================
 
   Future<void> _editLot() async {
+    final int? lotId = _lot.id;
+
+    if (lotId == null) {
+      return;
+    }
+
+    try {
+      final Lot? currentLot = await _lotRepository.getLotById(
+        lotId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (currentLot != null) {
+        _lot = currentLot;
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No fue posible cargar la información actualizada del lote.',
+            ),
+          ),
+        );
+
+      return;
+    }
     final bool? updated = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -142,12 +182,6 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
     );
 
     if (updated != true) {
-      return;
-    }
-
-    final int? lotId = _lot.id;
-
-    if (lotId == null) {
       return;
     }
 

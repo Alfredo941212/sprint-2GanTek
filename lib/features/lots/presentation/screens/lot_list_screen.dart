@@ -4,7 +4,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../data/models/lot.dart';
 import '../../data/repositories/lot_repository.dart';
 import 'register_lot_screen.dart';
-
+import '../../../cattle/data/models/cattle.dart';
+import '../../../cattle/data/repositories/cattle_repository.dart';
 import 'lot_detail_screen.dart';
 
 class LotListScreen extends StatefulWidget {
@@ -18,6 +19,8 @@ class LotListScreen extends StatefulWidget {
 
 class _LotListScreenState extends State<LotListScreen> {
   final LotRepository _lotRepository = LotRepository();
+
+  final CattleRepository _cattleRepository = CattleRepository();
 
   List<Lot> _lots = [];
 
@@ -48,6 +51,8 @@ class _LotListScreenState extends State<LotListScreen> {
     try {
       final List<Lot> lots = await _lotRepository.getAllLots();
 
+      final List<Cattle> cattle = await _cattleRepository.getAllCattle();
+
       final Map<int, int> cattleCounts = {};
       final Map<int, int> productiveCounts = {};
 
@@ -58,14 +63,20 @@ class _LotListScreenState extends State<LotListScreen> {
           continue;
         }
 
-        cattleCounts[lotId] = await _lotRepository.countCattleInLot(
-          lotId,
-        );
+        cattleCounts[lotId] = cattle.where(
+          (Cattle animal) {
+            return animal.lotId == lotId && animal.status == 'Activo';
+          },
+        ).length;
 
-        productiveCounts[lotId] =
-            await _lotRepository.countProductiveCattleInLot(
-          lotId,
-        );
+        productiveCounts[lotId] = cattle.where(
+          (Cattle animal) {
+            return animal.lotId == lotId &&
+                animal.status == 'Activo' &&
+                animal.sex == 'Hembra' &&
+                animal.productiveStatus == 'En producción';
+          },
+        ).length;
       }
 
       if (!mounted) {

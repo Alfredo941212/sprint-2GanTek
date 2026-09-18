@@ -14,6 +14,7 @@ Future<void> main() async {
     serverClientId:
         '73932782693-qn0t7tt7av2uopfn24o061vhfq1bh9ks.apps.googleusercontent.com',
   );
+
   runApp(
     const GanTekApp(),
   );

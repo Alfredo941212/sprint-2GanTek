@@ -95,6 +95,38 @@ class Cattle {
     );
   }
 
+  factory Cattle.fromApi(
+    Map<String, dynamic> map,
+  ) {
+    return Cattle(
+      id: (map['id'] as num?)?.toInt(),
+      userId: 0,
+      lotId: (map['lote_id'] as num?)?.toInt(),
+      code: map['arete_siniiga']?.toString() ?? '',
+      name: map['nombre']?.toString() ?? '',
+      sex: map['sexo']?.toString() ?? 'Hembra',
+      breed: map['raza']?.toString() ?? '',
+      birthDate: _parseDate(
+        map['fecha_nacimiento'],
+      ),
+      entryDate: _parseDate(
+            map['fecha_ingreso'],
+          ) ??
+          DateTime.now(),
+      initialWeight: _toDouble(
+        map['peso_inicial'],
+      ),
+      productiveStatus: map['estado_productivo']?.toString() ?? 'En producción',
+      minimumDailyProduction: _toDouble(
+            map['produccion_minima_diaria'],
+          ) ??
+          4.0,
+      status: map['estado']?.toString() ?? 'Activo',
+      observations: map['observaciones']?.toString() ?? '',
+      imagePath: null,
+    );
+  }
+
   Cattle copyWith({
     int? id,
     int? userId,
@@ -151,5 +183,21 @@ class Cattle {
     }
 
     return DateTime.tryParse(text);
+  }
+
+  static double? _toDouble(
+    dynamic value,
+  ) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+      value.toString(),
+    );
   }
 }

@@ -169,6 +169,20 @@ class _RegisterVeterinarianScreenState
     return null;
   }
 
+  String? _validateLicense(
+    String? value,
+  ) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Ingresa la cédula profesional.';
+    }
+
+    if (value.trim().length > 50) {
+      return 'La cédula profesional no puede superar 50 caracteres.';
+    }
+
+    return null;
+  }
+
   String? _validatePhone(
     String? value,
   ) {
@@ -257,8 +271,9 @@ class _RegisterVeterinarianScreenState
 
             TextFormField(
               controller: _licenseController,
+              validator: _validateLicense,
               decoration: const InputDecoration(
-                labelText: 'Cédula profesional',
+                labelText: 'Cédula profesional *',
                 prefixIcon: Icon(
                   Icons.badge_outlined,
                 ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/app_text_field.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/services/api_auth_service.dart';
 
 class RegisterUserScreen extends StatefulWidget {
   const RegisterUserScreen({super.key});
@@ -15,6 +16,8 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   final AuthRepository _authRepository = AuthRepository();
+
+  final ApiAuthService _apiAuthService = ApiAuthService();
 
   final TextEditingController _nameController = TextEditingController();
 
@@ -75,23 +78,30 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
     }
 
     final String fullName = _nameController.text.trim();
-
     final String email = _emailController.text.trim().toLowerCase();
-
     final String phone = _phoneController.text.trim();
-
     final String password = _passwordController.text;
+    final String passwordConfirmation = _confirmPasswordController.text;
 
     setState(() {
       _isSaving = true;
     });
 
     try {
-      await _authRepository.registerUser(
+      // 1. Crear el usuario principal en Laravel/MySQL.
+      await _apiAuthService.register(
+        name: fullName,
+        email: email,
+        password: password,
+        passwordConfirmation: passwordConfirmation,
+      );
+
+      // 2. Crear temporalmente una copia local para los módulos
+      // que todavía utilizan SQLite.
+      await _authRepository.createLocalUser(
         fullName: fullName,
         email: email,
         phone: phone,
-        password: password,
       );
 
       if (!mounted) {
@@ -101,7 +111,7 @@ class _RegisterUserScreenState extends State<RegisterUserScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Cuenta creada. Revisa tu correo para verificarla.',
+            'Cuenta creada correctamente. Ya puedes iniciar sesión.',
           ),
         ),
       );

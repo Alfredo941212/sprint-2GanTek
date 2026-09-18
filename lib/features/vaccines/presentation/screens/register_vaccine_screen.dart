@@ -5,9 +5,11 @@ import '../../../cattle/data/models/cattle.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
 import '../../data/models/vaccine_record.dart';
 import '../../data/repositories/vaccine_repository.dart';
-import '../../../../core/session/session_manager.dart';
+
 import '../../../veterinarians/data/models/veterinarian.dart';
 import '../../../veterinarians/data/repositories/veterinarian_repository.dart';
+import '../../data/models/vaccine.dart';
+import '../../data/repositories/vaccine_catalog_repository.dart';
 
 class RegisterVaccineScreen extends StatefulWidget {
   const RegisterVaccineScreen({
@@ -30,6 +32,9 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
   final VaccineRepository _vaccineRepository = VaccineRepository();
 
+  final VaccineCatalogRepository _vaccineCatalogRepository =
+      VaccineCatalogRepository();
+
   final VeterinarianRepository _veterinarianRepository =
       VeterinarianRepository();
 
@@ -43,8 +48,6 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
   final TextEditingController _doseController =
       TextEditingController(text: '1');
 
-  final TextEditingController _vaccineController = TextEditingController();
-
   final TextEditingController _observationsController = TextEditingController();
 
   List<Cattle> _cattleList = <Cattle>[];
@@ -52,6 +55,9 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
   List<Veterinarian> _veterinarians = <Veterinarian>[];
   Veterinarian? _selectedVeterinarian;
+
+  List<Vaccine> _vaccines = <Vaccine>[];
+  Vaccine? _selectedVaccine;
 
   DateTime _applicationDate = DateTime.now();
   DateTime? _nextDoseDate;
@@ -66,10 +72,9 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     final VaccineRecord? vaccine = widget.vaccine;
 
     if (vaccine != null) {
-      _vaccineController.text = vaccine.vaccineName;
       _applicationDate = vaccine.applicationDate;
       _nextDoseDate = vaccine.nextDoseDate;
-      _doseController.text = vaccine.doseNumber.toString();
+      _doseController.text = vaccine.dose;
       _observationsController.text = vaccine.observations;
     }
 
@@ -102,6 +107,7 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       await Future.wait([
         _loadCattle(),
         _loadVeterinarians(),
+        _loadVaccines(),
       ]);
     } catch (error) {
       debugPrint(
@@ -200,6 +206,47 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     }
   }
 
+  Future<void> _loadVaccines() async {
+    try {
+      final List<Vaccine> result =
+          await _vaccineCatalogRepository.getActiveVaccines();
+
+      if (!mounted) {
+        return;
+      }
+
+      Vaccine? selectedVaccine;
+
+      final VaccineRecord? vaccination = widget.vaccine;
+
+      if (vaccination != null) {
+        for (final Vaccine vaccine in result) {
+          if (vaccine.id == vaccination.vaccineId) {
+            selectedVaccine = vaccine;
+            break;
+          }
+        }
+      }
+
+      setState(() {
+        _vaccines = result;
+        _selectedVaccine = selectedVaccine;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(
+        'No fue posible cargar el catálogo de vacunas.',
+      );
+
+      debugPrint(
+        'Error cargando catálogo de vacunas: $error',
+      );
+    }
+  }
+
   Future<void> _pickApplicationDate() async {
     final DateTime? selectedDate = await showDatePicker(
       context: context,
@@ -273,28 +320,16 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
       return;
     }
 
+    if (_selectedVaccine == null || _selectedVaccine!.id == null) {
+      _showMessage(
+        'Selecciona una vacuna.',
+      );
+      return;
+    }
+
     if (_selectedVeterinarian == null) {
       _showMessage(
         'Selecciona el veterinario responsable.',
-      );
-      return;
-    }
-
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      _showMessage(
-        'No hay una sesión activa.',
-      );
-      return;
-    }
-    final int? doseNumber = int.tryParse(
-      _doseController.text.trim(),
-    );
-
-    if (doseNumber == null || doseNumber <= 0) {
-      _showMessage(
-        'Ingresa un número de dosis válido.',
       );
       return;
     }
@@ -306,16 +341,18 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
     try {
       final VaccineRecord vaccine = VaccineRecord(
         id: widget.vaccine?.id,
-        userId: userId,
         cattleId: _selectedCattle!.id!,
+        vaccineId: _selectedVaccine!.id!,
+        veterinarianId: _selectedVeterinarian!.id!,
         cattleCode: _selectedCattle!.code,
-        vaccineName: _vaccineController.text.trim(),
+        vaccineName: _selectedVaccine!.name,
+        veterinarianName: _selectedVeterinarian!.name,
         applicationDate: _applicationDate,
         nextDoseDate: _nextDoseDate,
-        doseNumber: doseNumber,
-        responsible: _selectedVeterinarian!.name,
+        dose: _doseController.text.trim(),
         observations: _observationsController.text.trim(),
-        createdAt: widget.vaccine?.createdAt ?? DateTime.now(),
+        createdAt: widget.vaccine?.createdAt,
+        updatedAt: widget.vaccine?.updatedAt,
       );
 
       if (widget.isEditing) {
@@ -360,7 +397,6 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
 
   @override
   void dispose() {
-    _vaccineController.dispose();
     _applicationDateController.dispose();
     _nextDoseDateController.dispose();
     _doseController.dispose();
@@ -448,22 +484,68 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                       },
                     ),
                   const SizedBox(height: 14),
-                  AppTextField(
-                    label: 'Nombre de la vacuna',
-                    controller: _vaccineController,
-                    icon: Icons.vaccines_outlined,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Ingresa el nombre de la vacuna';
-                      }
+                  if (_vaccines.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.warning_amber_rounded,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'No hay vacunas activas disponibles.',
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<Vaccine>(
+                      initialValue: _selectedVaccine,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Vacuna',
+                        prefixIcon: Icon(
+                          Icons.vaccines_outlined,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: _vaccines.map(
+                        (Vaccine vaccine) {
+                          final String manufacturer =
+                              vaccine.manufacturer?.trim().isNotEmpty == true
+                                  ? ' — ${vaccine.manufacturer}'
+                                  : '';
 
-                      if (value.trim().length < 3) {
-                        return 'El nombre es demasiado corto';
-                      }
+                          return DropdownMenuItem<Vaccine>(
+                            value: vaccine,
+                            child: Text(
+                              '${vaccine.name}$manufacturer',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        },
+                      ).toList(),
+                      onChanged: (Vaccine? vaccine) {
+                        setState(() {
+                          _selectedVaccine = vaccine;
+                        });
+                      },
+                      validator: (Vaccine? value) {
+                        if (value == null) {
+                          return 'Selecciona una vacuna';
+                        }
 
-                      return null;
-                    },
-                  ),
+                        return null;
+                      },
+                    ),
                   const SizedBox(height: 14),
                   AppTextField(
                     label: 'Fecha de aplicación',
@@ -500,17 +582,16 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
                   ),
                   const SizedBox(height: 14),
                   AppTextField(
-                    label: 'Número de dosis',
+                    label: 'Dosis',
                     controller: _doseController,
-                    icon: Icons.format_list_numbered,
-                    keyboardType: TextInputType.number,
+                    icon: Icons.medication_outlined,
                     validator: (value) {
-                      final int? dose = int.tryParse(
-                        value?.trim() ?? '',
-                      );
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Ingresa la dosis aplicada';
+                      }
 
-                      if (dose == null || dose <= 0) {
-                        return 'Ingresa una dosis válida';
+                      if (value.trim().length > 100) {
+                        return 'La dosis no puede superar 100 caracteres';
                       }
 
                       return null;

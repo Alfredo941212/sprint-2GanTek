@@ -1,31 +1,12 @@
-import 'package:sqflite/sqflite.dart';
-
-import '../../../../core/database/database_helper.dart';
-import '../../../../core/session/session_manager.dart';
 import '../models/cattle.dart';
+import 'dart:convert';
+
+import '../../../../core/network/api_client.dart';
 
 class CattleRepository {
-  final DatabaseHelper _databaseHelper;
-
-  CattleRepository({
-    DatabaseHelper? databaseHelper,
-  }) : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
-
   // =========================================================
   // OBTENER USUARIO ACTUAL
   // =========================================================
-
-  int _requireUserId() {
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      throw StateError(
-        'No hay una sesión de usuario activa.',
-      );
-    }
-
-    return userId;
-  }
 
   // =========================================================
   // REGISTRAR GANADO
@@ -34,23 +15,91 @@ class CattleRepository {
   Future<int> insertCattle(
     Cattle cattle,
   ) async {
-    final int userId = _requireUserId();
+    final int? lotId = cattle.lotId;
 
-    final Database database = await _databaseHelper.database;
+    if (lotId == null) {
+      throw Exception(
+        'Debes seleccionar un lote.',
+      );
+    }
 
-    final Map<String, dynamic> data = cattle.toMap();
+    final Map<String, dynamic> body = {
+      'lote_id': lotId,
+      'arete_siniiga': cattle.code.trim(),
+      'nombre': cattle.name.trim().isEmpty ? null : cattle.name.trim(),
+      'sexo': cattle.sex,
+      'raza': cattle.breed.trim().isEmpty ? null : cattle.breed.trim(),
+      'fecha_nacimiento': cattle.birthDate == null
+          ? null
+          : _formatApiDate(
+              cattle.birthDate!,
+            ),
+      'fecha_ingreso': _formatApiDate(
+        cattle.entryDate,
+      ),
+      'peso_inicial': cattle.initialWeight,
+      'estado_productivo': cattle.productiveStatus,
+      'produccion_minima_diaria': cattle.minimumDailyProduction,
+      'estado': cattle.status,
+      'observaciones': cattle.observations.trim().isEmpty
+          ? null
+          : cattle.observations.trim(),
+    };
 
-    data.remove('id');
+    final response = await ApiClient.instance.post(
+      '/ganado',
+      body: body,
+    );
 
-    // Nunca confiamos en un userId recibido desde la UI.
-    data['user_id'] = userId;
+    if (response.statusCode == 201) {
+      final dynamic decoded = jsonDecode(
+        response.body,
+      );
 
-    data['created_at'] = DateTime.now().toIso8601String();
+      if (decoded is Map<String, dynamic>) {
+        final dynamic data = decoded['data'];
 
-    return database.insert(
-      DatabaseHelper.cattleTable,
-      data,
-      conflictAlgorithm: ConflictAlgorithm.abort,
+        if (data is Map<String, dynamic>) {
+          final dynamic id = data['id'];
+
+          if (id is int) {
+            return id;
+          }
+
+          return int.tryParse(
+                id?.toString() ?? '',
+              ) ??
+              0;
+        }
+      }
+
+      return 0;
+    }
+
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para registrar ganado.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw Exception(
+        _extractApiError(
+          response.body,
+          'Los datos del ganado no son válidos.',
+        ),
+      );
+    }
+
+    throw Exception(
+      'No fue posible registrar el ganado '
+      '(${response.statusCode}).',
     );
   }
 
@@ -59,22 +108,42 @@ class CattleRepository {
   // =========================================================
 
   Future<List<Cattle>> getAllCattle() async {
-    final int? userId = SessionManager.instance.currentUserId;
-
-    if (userId == null) {
-      return <Cattle>[];
-    }
-
-    final Database database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      where: 'user_id = ?',
-      whereArgs: [userId],
-      orderBy: 'created_at DESC',
+    final response = await ApiClient.instance.get(
+      '/ganado',
     );
 
-    return result.map(Cattle.fromMap).toList();
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'No fue posible cargar el ganado '
+        '(${response.statusCode}).',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
+    );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'El servidor devolvió una respuesta inválida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    if (data is! List) {
+      throw Exception(
+        'El servidor no devolvió la lista de ganado.',
+      );
+    }
+
+    return data.whereType<Map<String, dynamic>>().map(Cattle.fromApi).toList();
   }
 
   // =========================================================
@@ -84,31 +153,52 @@ class CattleRepository {
   Future<Cattle?> getCattleById(
     int id,
   ) async {
-    final int? userId = SessionManager.instance.currentUserId;
+    final response = await ApiClient.instance.get(
+      '/ganado/$id',
+    );
 
-    if (userId == null) {
+    if (response.statusCode == 404) {
       return null;
     }
 
-    final Database database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        id,
-        userId,
-      ],
-      limit: 1,
-    );
-
-    if (result.isEmpty) {
-      return null;
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
     }
 
-    return Cattle.fromMap(
-      result.first,
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para consultar este animal.',
+      );
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'No fue posible cargar el ganado '
+        '(${response.statusCode}).',
+      );
+    }
+
+    final dynamic decoded = jsonDecode(
+      response.body,
     );
+
+    if (decoded is! Map<String, dynamic>) {
+      throw Exception(
+        'El servidor devolvió una respuesta inválida.',
+      );
+    }
+
+    final dynamic data = decoded['data'];
+
+    if (data is! Map<String, dynamic>) {
+      throw Exception(
+        'El servidor no devolvió la información del animal.',
+      );
+    }
+
+    return Cattle.fromApi(data);
   }
 
   // =========================================================
@@ -119,35 +209,19 @@ class CattleRepository {
     String code, {
     int? excludeCattleId,
   }) async {
-    final int userId = _requireUserId();
+    final List<Cattle> cattle = await getAllCattle();
 
-    final Database database = await _databaseHelper.database;
+    final String normalizedCode = code.trim().toLowerCase();
 
-    String where = 'user_id = ? AND code = ?';
+    return cattle.any(
+      (Cattle animal) {
+        if (excludeCattleId != null && animal.id == excludeCattleId) {
+          return false;
+        }
 
-    final List<Object?> whereArgs = [
-      userId,
-      code.trim(),
-    ];
-
-    // Cuando editamos una vaca, ignoramos su propio ID.
-    if (excludeCattleId != null) {
-      where += ' AND id != ?';
-
-      whereArgs.add(
-        excludeCattleId,
-      );
-    }
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      columns: ['id'],
-      where: where,
-      whereArgs: whereArgs,
-      limit: 1,
+        return animal.code.trim().toLowerCase() == normalizedCode;
+      },
     );
-
-    return result.isNotEmpty;
   }
 
   // =========================================================
@@ -157,31 +231,79 @@ class CattleRepository {
   Future<int> updateCattle(
     Cattle cattle,
   ) async {
-    if (cattle.id == null) {
+    final int? cattleId = cattle.id;
+
+    if (cattleId == null) {
       throw ArgumentError(
         'No se puede actualizar un animal sin identificador.',
       );
     }
 
-    final int userId = _requireUserId();
+    final int? lotId = cattle.lotId;
 
-    final Database database = await _databaseHelper.database;
+    if (lotId == null) {
+      throw Exception(
+        'Debes seleccionar un lote.',
+      );
+    }
 
-    final Map<String, dynamic> data = cattle.toMap();
+    final Map<String, dynamic> body = {
+      'lote_id': lotId,
+      'arete_siniiga': cattle.code.trim(),
+      'nombre': cattle.name.trim().isEmpty ? null : cattle.name.trim(),
+      'sexo': cattle.sex,
+      'raza': cattle.breed.trim().isEmpty ? null : cattle.breed.trim(),
+      'fecha_nacimiento':
+          cattle.birthDate == null ? null : _formatApiDate(cattle.birthDate!),
+      'fecha_ingreso': _formatApiDate(cattle.entryDate),
+      'peso_inicial': cattle.initialWeight,
+      'estado_productivo': cattle.productiveStatus,
+      'produccion_minima_diaria': cattle.minimumDailyProduction,
+      'estado': cattle.status,
+      'observaciones': cattle.observations.trim().isEmpty
+          ? null
+          : cattle.observations.trim(),
+    };
 
-    data.remove('id');
+    final response = await ApiClient.instance.put(
+      '/ganado/$cattleId',
+      body: body,
+    );
 
-    // Conservamos siempre el propietario real de la sesión.
-    data['user_id'] = userId;
+    if (response.statusCode == 200) {
+      return 1;
+    }
 
-    return database.update(
-      DatabaseHelper.cattleTable,
-      data,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        cattle.id,
-        userId,
-      ],
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para actualizar este animal.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw Exception(
+        'El animal no existe o ya no está disponible.',
+      );
+    }
+
+    if (response.statusCode == 422) {
+      throw Exception(
+        _extractApiError(
+          response.body,
+          'Los datos del ganado no son válidos.',
+        ),
+      );
+    }
+
+    throw Exception(
+      'No fue posible actualizar el ganado '
+      '(${response.statusCode}).',
     );
   }
 
@@ -189,20 +311,35 @@ class CattleRepository {
   // ELIMINAR GANADO
   // =========================================================
 
-  Future<int> deleteCattle(
-    int id,
-  ) async {
-    final int userId = _requireUserId();
+  Future<int> deleteCattle(int id) async {
+    final response = await ApiClient.instance.delete(
+      '/ganado/$id',
+    );
 
-    final Database database = await _databaseHelper.database;
+    if (response.statusCode == 200 || response.statusCode == 204) {
+      return 1;
+    }
 
-    return database.delete(
-      DatabaseHelper.cattleTable,
-      where: 'id = ? AND user_id = ?',
-      whereArgs: [
-        id,
-        userId,
-      ],
+    if (response.statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw Exception(
+        'No tienes permiso para dar de baja este animal.',
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw Exception(
+        'El animal no existe o ya no está disponible.',
+      );
+    }
+
+    throw Exception(
+      'No fue posible dar de baja el animal (${response.statusCode}).',
     );
   }
 
@@ -211,28 +348,13 @@ class CattleRepository {
   // =========================================================
 
   Future<List<Cattle>> getActiveCattle() async {
-    final int? userId = SessionManager.instance.currentUserId;
+    final List<Cattle> cattle = await getAllCattle();
 
-    if (userId == null) {
-      return <Cattle>[];
-    }
-
-    final Database database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      where: '''
-        user_id = ?
-        AND status = ?
-      ''',
-      whereArgs: [
-        userId,
-        'Activo',
-      ],
-      orderBy: 'created_at DESC',
-    );
-
-    return result.map(Cattle.fromMap).toList();
+    return cattle
+        .where(
+          (Cattle animal) => animal.status == 'Activo',
+        )
+        .toList();
   }
 
   // =========================================================
@@ -240,32 +362,19 @@ class CattleRepository {
   // =========================================================
 
   Future<List<Cattle>> getProductiveCattle() async {
-    final int? userId = SessionManager.instance.currentUserId;
+    final List<Cattle> cattle = await getAllCattle();
 
-    if (userId == null) {
-      return <Cattle>[];
-    }
+    final List<Cattle> productiveCattle = cattle.where((Cattle animal) {
+      return animal.status == 'Activo' &&
+          animal.productiveStatus == 'En producción' &&
+          animal.sex == 'Hembra';
+    }).toList();
 
-    final Database database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      where: '''
-        user_id = ?
-        AND status = ?
-        AND productive_status = ?
-        AND sex = ?
-      ''',
-      whereArgs: [
-        userId,
-        'Activo',
-        'En producción',
-        'Hembra',
-      ],
-      orderBy: 'code ASC',
+    productiveCattle.sort(
+      (Cattle a, Cattle b) => a.code.compareTo(b.code),
     );
 
-    return result.map(Cattle.fromMap).toList();
+    return productiveCattle;
   }
 
   // =========================================================
@@ -275,24 +384,17 @@ class CattleRepository {
   Future<List<Cattle>> getCattleByLot(
     int lotId,
   ) async {
-    final int userId = _requireUserId();
+    final List<Cattle> cattle = await getAllCattle();
 
-    final Database database = await _databaseHelper.database;
+    final List<Cattle> cattleByLot = cattle.where((Cattle animal) {
+      return animal.lotId == lotId;
+    }).toList();
 
-    final List<Map<String, dynamic>> result = await database.query(
-      DatabaseHelper.cattleTable,
-      where: '''
-        user_id = ?
-        AND lot_id = ?
-      ''',
-      whereArgs: [
-        userId,
-        lotId,
-      ],
-      orderBy: 'code ASC',
+    cattleByLot.sort(
+      (Cattle a, Cattle b) => a.code.compareTo(b.code),
     );
 
-    return result.map(Cattle.fromMap).toList();
+    return cattleByLot;
   }
 
   // =========================================================
@@ -300,25 +402,9 @@ class CattleRepository {
   // =========================================================
 
   Future<int> countCattle() async {
-    final int userId = _requireUserId();
+    final List<Cattle> cattle = await getActiveCattle();
 
-    final Database database = await _databaseHelper.database;
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COUNT(*) AS total
-      FROM ${DatabaseHelper.cattleTable}
-      WHERE user_id = ?
-        AND status = 'Activo'
-      ''',
-      [userId],
-    );
-
-    if (result.isEmpty) {
-      return 0;
-    }
-
-    return (result.first['total'] as num?)?.toInt() ?? 0;
+    return cattle.length;
   }
 
   // =========================================================
@@ -326,26 +412,57 @@ class CattleRepository {
   // =========================================================
 
   Future<int> countProductiveCattle() async {
-    final int userId = _requireUserId();
+    final List<Cattle> cattle = await getProductiveCattle();
 
-    final Database database = await _databaseHelper.database;
+    return cattle.length;
+  }
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COUNT(*) AS total
-      FROM ${DatabaseHelper.cattleTable}
-      WHERE user_id = ?
-        AND status = 'Activo'
-        AND productive_status = 'En producción'
-        AND sex = 'Hembra'
-      ''',
-      [userId],
-    );
+  String _formatApiDate(
+    DateTime date,
+  ) {
+    final String year = date.year.toString().padLeft(4, '0');
+    final String month = date.month.toString().padLeft(2, '0');
+    final String day = date.day.toString().padLeft(2, '0');
 
-    if (result.isEmpty) {
-      return 0;
+    return '$year-$month-$day';
+  }
+
+  String _extractApiError(
+    String responseBody,
+    String fallback,
+  ) {
+    try {
+      final dynamic decoded = jsonDecode(
+        responseBody,
+      );
+
+      if (decoded is! Map<String, dynamic>) {
+        return fallback;
+      }
+
+      final dynamic errors = decoded['errors'];
+
+      if (errors is Map) {
+        for (final dynamic value in errors.values) {
+          if (value is List && value.isNotEmpty) {
+            return value.first.toString();
+          }
+
+          if (value != null) {
+            return value.toString();
+          }
+        }
+      }
+
+      final dynamic message = decoded['message'];
+
+      if (message != null && message.toString().trim().isNotEmpty) {
+        return message.toString();
+      }
+    } catch (_) {
+      // Se utiliza el mensaje genérico.
     }
 
-    return (result.first['total'] as num?)?.toInt() ?? 0;
+    return fallback;
   }
 }

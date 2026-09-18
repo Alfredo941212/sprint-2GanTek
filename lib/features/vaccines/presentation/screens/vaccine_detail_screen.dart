@@ -373,7 +373,7 @@ class _VaccineDetailScreenState extends State<VaccineDetailScreen> {
               ),
               _DetailRow(
                 label: 'Número de dosis',
-                value: '${_vaccine.doseNumber}',
+                value: _vaccine.dose,
               ),
               _DetailRow(
                 label: 'Próxima dosis',
