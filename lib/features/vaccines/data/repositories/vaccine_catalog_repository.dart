@@ -1,5 +1,6 @@
 import 'dart:convert';
-
+import 'package:sqflite/sqflite.dart';
+import '../../../../core/database/database_helper.dart';
 import '../../../../core/network/api_client.dart';
 import '../models/vaccine.dart';
 
@@ -9,41 +10,102 @@ class VaccineCatalogRepository {
   }) : _apiClient = apiClient ?? ApiClient.instance;
 
   final ApiClient _apiClient;
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+
+  Future<void> _saveApiVaccinesLocally(
+    List<Map<String, dynamic>> apiVaccines,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    for (final Map<String, dynamic> apiVaccine in apiVaccines) {
+      final Vaccine serverVaccine = Vaccine.fromApi(apiVaccine);
+
+      final int? serverId = serverVaccine.serverId;
+
+      if (serverId == null) {
+        continue;
+      }
+
+      final List<Map<String, dynamic>> existing = await db.query(
+        DatabaseHelper.vaccineCatalogTable,
+        columns: ['id'],
+        where: 'server_id = ?',
+        whereArgs: [serverId],
+        limit: 1,
+      );
+
+      final int? localId =
+          existing.isEmpty ? null : (existing.first['id'] as num?)?.toInt();
+
+      final Map<String, dynamic> data = serverVaccine.toMap();
+
+      data.remove('id');
+
+      if (localId == null) {
+        await db.insert(
+          DatabaseHelper.vaccineCatalogTable,
+          data,
+          conflictAlgorithm: ConflictAlgorithm.abort,
+        );
+      } else {
+        await db.update(
+          DatabaseHelper.vaccineCatalogTable,
+          data,
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+      }
+    }
+  }
 
   Future<List<Vaccine>> getAllVaccines() async {
-    final response = await _apiClient.get(
-      '/vacunas',
-    );
+    final Database db = await _databaseHelper.database;
 
-    if (response.statusCode == 401) {
-      throw StateError(
-        'Tu sesión ha expirado. Inicia sesión nuevamente.',
+    try {
+      final response = await _apiClient.get(
+        '/vacunas',
       );
+
+      if (response.statusCode == 401) {
+        throw StateError(
+          'Tu sesión ha expirado. Inicia sesión nuevamente.',
+        );
+      }
+
+      if (response.statusCode != 200) {
+        throw StateError(
+          _extractMessage(
+            response.body,
+            'No fue posible cargar las vacunas.',
+          ),
+        );
+      }
+
+      final Map<String, dynamic> json =
+          jsonDecode(response.body) as Map<String, dynamic>;
+
+      final List<dynamic> data = json['data'] as List<dynamic>? ?? <dynamic>[];
+
+      final List<Map<String, dynamic>> apiVaccines =
+          data.whereType<Map<String, dynamic>>().toList();
+
+      await _saveApiVaccinesLocally(
+        apiVaccines,
+      );
+    } catch (_) {
+      // Si Laravel no está disponible, usamos SQLite.
     }
 
-    if (response.statusCode != 200) {
-      throw StateError(
-        _extractMessage(
-          response.body,
-          'No fue posible cargar las vacunas.',
-        ),
-      );
-    }
-
-    final Map<String, dynamic> json =
-        jsonDecode(response.body) as Map<String, dynamic>;
-
-    final List<dynamic> data = json['data'] as List<dynamic>? ?? <dynamic>[];
-
-    final List<Vaccine> vaccines =
-        data.whereType<Map<String, dynamic>>().map(Vaccine.fromApi).toList();
-
-    vaccines.sort(
-      (Vaccine a, Vaccine b) =>
-          a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.vaccineCatalogTable,
+      orderBy: 'name COLLATE NOCASE ASC',
     );
 
-    return vaccines;
+    return rows
+        .map(
+          (Map<String, dynamic> row) => Vaccine.fromMap(row),
+        )
+        .toList();
   }
 
   Future<List<Vaccine>> getActiveVaccines() async {
@@ -141,13 +203,33 @@ class VaccineCatalogRepository {
 
     final Vaccine created = Vaccine.fromApi(data);
 
-    if (created.id == null) {
+    if (created.serverId == null) {
       throw StateError(
         'El servidor no devolvió el identificador de la vacuna.',
       );
     }
 
-    return created.id!;
+    await _saveApiVaccinesLocally([
+      data,
+    ]);
+
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> localRows = await db.query(
+      DatabaseHelper.vaccineCatalogTable,
+      columns: ['id'],
+      where: 'server_id = ?',
+      whereArgs: [created.serverId],
+      limit: 1,
+    );
+
+    if (localRows.isEmpty) {
+      throw StateError(
+        'No se pudo guardar localmente la vacuna.',
+      );
+    }
+
+    return (localRows.first['id'] as num).toInt();
   }
 
   Future<int> updateVaccine(Vaccine vaccine) async {

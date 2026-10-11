@@ -17,7 +17,7 @@ class DatabaseHelper {
 
   // Versión 8:
   // Inicio de migración de GanTek hacia producción lechera.
-  static const int databaseVersion = 9;
+  static const int databaseVersion = 13;
 
   // =========================================================
   // TABLAS
@@ -164,7 +164,24 @@ class DatabaseHelper {
       CREATE TABLE IF NOT EXISTS $lotsTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
 
+        server_id INTEGER UNIQUE,
+
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (
+            sync_status IN (
+              'pending',
+              'synced',
+              'error'
+            )
+          ),
+
+        updated_at TEXT,
+
+        last_sync_error TEXT,
+
         user_id INTEGER NOT NULL,
+
+        farm_id INTEGER,
 
         name TEXT NOT NULL,
 
@@ -198,6 +215,21 @@ class DatabaseHelper {
     await database.execute('''
       CREATE TABLE IF NOT EXISTS $cattleTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        server_id INTEGER UNIQUE,
+
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (
+            sync_status IN (
+              'pending',
+              'synced',
+              'error'
+            )
+          ),
+
+        updated_at TEXT,
+
+        last_sync_error TEXT,
 
         user_id INTEGER NOT NULL,
 
@@ -321,6 +353,8 @@ class DatabaseHelper {
       CREATE TABLE IF NOT EXISTS $veterinariansTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
 
+        server_id INTEGER UNIQUE,
+
         name TEXT NOT NULL,
 
         professional_license TEXT UNIQUE,
@@ -351,6 +385,8 @@ class DatabaseHelper {
     await database.execute('''
       CREATE TABLE IF NOT EXISTS $vaccineCatalogTable (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        server_id INTEGER UNIQUE,
 
         name TEXT NOT NULL UNIQUE,
 
@@ -426,48 +462,63 @@ class DatabaseHelper {
     DatabaseExecutor database,
   ) async {
     await database.execute('''
-      CREATE TABLE IF NOT EXISTS $milkingRecordsTable (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+    CREATE TABLE IF NOT EXISTS $milkingRecordsTable (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
 
-        user_id INTEGER NOT NULL,
+      cattle_id INTEGER NOT NULL,
 
-        cattle_id INTEGER NOT NULL,
+      historical_lot_id INTEGER,
 
-        historical_lot_id INTEGER,
+      date TEXT NOT NULL,
 
-        date TEXT NOT NULL,
+      milking_number INTEGER NOT NULL
+        CHECK (milking_number > 0),
 
-        milking_number INTEGER NOT NULL
-          CHECK (milking_number > 0),
+      shift TEXT,
 
-        shift TEXT,
+      liters REAL NOT NULL
+        CHECK (liters > 0),
 
-        liters REAL NOT NULL
-          CHECK (liters > 0),
+      observations TEXT NOT NULL DEFAULT '',
 
-        observations TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
 
-        created_at TEXT NOT NULL,
+      server_id INTEGER,
 
-        FOREIGN KEY (user_id)
-          REFERENCES $usersTable(id)
-          ON DELETE CASCADE,
+      sync_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (
+          sync_status IN (
+            'pending',
+            'synced',
+            'error'
+          )
+        ),
 
-        FOREIGN KEY (cattle_id)
-          REFERENCES $cattleTable(id)
-          ON DELETE CASCADE,
+      updated_at TEXT,
 
-        FOREIGN KEY (historical_lot_id)
-          REFERENCES $lotsTable(id)
-          ON DELETE RESTRICT,
+      last_sync_error TEXT,
 
-        UNIQUE(
-          cattle_id,
-          date,
-          milking_number
-        )
+      FOREIGN KEY (user_id)
+        REFERENCES $usersTable(id)
+        ON DELETE CASCADE,
+
+      FOREIGN KEY (cattle_id)
+        REFERENCES $cattleTable(id)
+        ON DELETE CASCADE,
+
+      FOREIGN KEY (historical_lot_id)
+        REFERENCES $lotsTable(id)
+        ON DELETE RESTRICT,
+
+      UNIQUE(
+        cattle_id,
+        date,
+        milking_number
       )
-    ''');
+    )
+  ''');
   }
 
   // =========================================================
@@ -488,6 +539,107 @@ class DatabaseHelper {
         if (oldVersion < 9) {
           await transaction.execute(
             'DROP TABLE IF EXISTS sales',
+          );
+        }
+
+        // =====================================================
+        // VERSIÓN 10 - SOPORTE OFFLINE / SINCRONIZACIÓN
+        // =====================================================
+
+        if (oldVersion < 10) {
+          await _addColumnIfMissing(
+            database: transaction,
+            table: milkingRecordsTable,
+            column: 'server_id',
+            definition: 'INTEGER',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: milkingRecordsTable,
+            column: 'sync_status',
+            definition: "TEXT NOT NULL DEFAULT 'pending'",
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: milkingRecordsTable,
+            column: 'updated_at',
+            definition: 'TEXT',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: milkingRecordsTable,
+            column: 'last_sync_error',
+            definition: 'TEXT',
+          );
+
+          // Ganado
+          await _addColumnIfMissing(
+            database: transaction,
+            table: cattleTable,
+            column: 'server_id',
+            definition: 'INTEGER',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: cattleTable,
+            column: 'sync_status',
+            definition: "TEXT NOT NULL DEFAULT 'pending'",
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: cattleTable,
+            column: 'updated_at',
+            definition: 'TEXT',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: cattleTable,
+            column: 'last_sync_error',
+            definition: 'TEXT',
+          );
+
+          // Lotes
+          await _addColumnIfMissing(
+            database: transaction,
+            table: lotsTable,
+            column: 'server_id',
+            definition: 'INTEGER',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: lotsTable,
+            column: 'sync_status',
+            definition: "TEXT NOT NULL DEFAULT 'pending'",
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: lotsTable,
+            column: 'updated_at',
+            definition: 'TEXT',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: lotsTable,
+            column: 'last_sync_error',
+            definition: 'TEXT',
+          );
+        }
+
+        if (oldVersion < 11) {
+          await _addColumnIfMissing(
+            database: transaction,
+            table: lotsTable,
+            column: 'farm_id',
+            definition: 'INTEGER',
           );
         }
         // =====================================================
@@ -659,6 +811,57 @@ class DatabaseHelper {
         await _migrateLegacyVaccines(
           transaction,
         );
+
+        // =====================================================
+        // VERSIÓN 12 - UUID PARA SINCRONIZACIÓN DE ORDEÑOS
+        // =====================================================
+
+        if (oldVersion < 12) {
+          await _addColumnIfMissing(
+            database: transaction,
+            table: milkingRecordsTable,
+            column: 'uuid',
+            definition: 'TEXT',
+          );
+
+          await transaction.execute('''
+              CREATE UNIQUE INDEX IF NOT EXISTS
+              idx_milking_records_uuid
+              ON $milkingRecordsTable(uuid)
+            ''');
+        }
+
+        // =====================================================
+        // VERSIÓN 13 - IDS DEL SERVIDOR PARA SANIDAD
+        // =====================================================
+
+        if (oldVersion < 13) {
+          await _addColumnIfMissing(
+            database: transaction,
+            table: veterinariansTable,
+            column: 'server_id',
+            definition: 'INTEGER',
+          );
+
+          await _addColumnIfMissing(
+            database: transaction,
+            table: vaccineCatalogTable,
+            column: 'server_id',
+            definition: 'INTEGER',
+          );
+
+          await transaction.execute('''
+          CREATE UNIQUE INDEX IF NOT EXISTS
+          idx_veterinarians_server_id
+          ON $veterinariansTable(server_id)
+        ''');
+
+          await transaction.execute('''
+          CREATE UNIQUE INDEX IF NOT EXISTS
+          idx_vaccines_server_id
+          ON $vaccineCatalogTable(server_id)
+        ''');
+        }
       },
     );
   }

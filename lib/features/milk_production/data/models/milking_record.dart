@@ -1,5 +1,13 @@
 class MilkingRecord {
   final int? id;
+
+  // Identificador único generado por Flutter.
+  // Permite evitar duplicados al sincronizar con Laravel.
+  final String? uuid;
+
+  // ID del registro equivalente en MySQL/Laravel.
+  final int? serverId;
+
   final int userId;
   final int cattleId;
   final int? historicalLotId;
@@ -7,20 +15,26 @@ class MilkingRecord {
   final DateTime date;
 
   // Se calcula automáticamente.
-  // El usuario no tendrá que escribirlo.
   final int milkingNumber;
 
-  // Opcional: Mañana, Tarde, Noche, etc.
+  // Opcional: Mañana, Tarde, etc.
   final String? shift;
 
   final double liters;
-
   final String? observations;
 
+  // pending | synced | error
+  final String syncStatus;
+
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  final String? lastSyncError;
 
   const MilkingRecord({
     this.id,
+    this.uuid,
+    this.serverId,
     required this.userId,
     required this.cattleId,
     this.historicalLotId,
@@ -29,7 +43,10 @@ class MilkingRecord {
     this.shift,
     required this.liters,
     this.observations,
+    this.syncStatus = 'pending',
     this.createdAt,
+    this.updatedAt,
+    this.lastSyncError,
   });
 
   // =========================================================
@@ -39,6 +56,8 @@ class MilkingRecord {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'uuid': uuid,
+      'server_id': serverId,
       'user_id': userId,
       'cattle_id': cattleId,
       'historical_lot_id': historicalLotId,
@@ -47,7 +66,10 @@ class MilkingRecord {
       'shift': _cleanNullableText(shift),
       'liters': liters,
       'observations': observations?.trim() ?? '',
+      'sync_status': syncStatus,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
+      'last_sync_error': lastSyncError,
     };
   }
 
@@ -59,60 +81,49 @@ class MilkingRecord {
     Map<String, dynamic> map,
   ) {
     return MilkingRecord(
-      id: (map['id'] as num?)?.toInt(),
-      userId: (map['user_id'] as num).toInt(),
-      cattleId: (map['cattle_id'] as num).toInt(),
-      historicalLotId: (map['historical_lot_id'] as num?)?.toInt(),
-      date: _parseDate(
-        map['date'],
-      ),
-      milkingNumber: (map['milking_number'] as num).toInt(),
-      shift: map['shift'] as String?,
-      liters: (map['liters'] as num).toDouble(),
-      observations: map['observations'] as String?,
-      createdAt: _parseNullableDateTime(
-        map['created_at'],
-      ),
+      id: _toInt(map['id']),
+      uuid: map['uuid']?.toString(),
+      serverId: _toInt(map['server_id']),
+      userId: _toInt(map['user_id']) ?? 0,
+      cattleId: _toInt(map['cattle_id']) ?? 0,
+      historicalLotId: _toInt(map['historical_lot_id']),
+      date: _parseDate(map['date']),
+      milkingNumber: _toInt(map['milking_number']) ?? 1,
+      shift: map['shift']?.toString(),
+      liters: _toDouble(map['liters']),
+      observations: map['observations']?.toString(),
+      syncStatus: map['sync_status']?.toString() ?? 'pending',
+      createdAt: _parseNullableDateTime(map['created_at']),
+      updatedAt: _parseNullableDateTime(map['updated_at']),
+      lastSyncError: map['last_sync_error']?.toString(),
     );
   }
 
-// =========================================================
-// CONVERTIR DESDE API LARAVEL
-// =========================================================
+  // =========================================================
+  // CONVERTIR DESDE API LARAVEL
+  // =========================================================
 
   factory MilkingRecord.fromApi(
     Map<String, dynamic> map,
   ) {
     return MilkingRecord(
-      id: _toInt(
-        map['id'],
-      ),
-      userId: _toInt(
-            map['user_id'],
-          ) ??
-          0,
-      cattleId: _toInt(
-            map['ganado_id'],
-          ) ??
-          0,
-      historicalLotId: _toInt(
-        map['lote_historico_id'],
-      ),
-      date: _parseDate(
-        map['fecha'],
-      ),
-      milkingNumber: _toInt(
-            map['numero_ordenio'],
-          ) ??
-          1,
+      // OJO:
+      // El id recibido aquí pertenece al servidor.
+      serverId: _toInt(map['id']),
+      uuid: map['uuid']?.toString(),
+
+      userId: _toInt(map['user_id']) ?? 0,
+      cattleId: _toInt(map['ganado_id']) ?? 0,
+      historicalLotId: _toInt(map['lote_historico_id']),
+      date: _parseDate(map['fecha']),
+      milkingNumber: _toInt(map['numero_ordenio']) ?? 1,
       shift: map['turno']?.toString(),
-      liters: _toDouble(
-        map['litros'],
-      ),
+      liters: _toDouble(map['litros']),
       observations: map['observaciones']?.toString(),
-      createdAt: _parseNullableDateTime(
-        map['created_at'],
-      ),
+      syncStatus: 'synced',
+      createdAt: _parseNullableDateTime(map['created_at']),
+      updatedAt: _parseNullableDateTime(map['updated_at']),
+      lastSyncError: null,
     );
   }
 
@@ -122,6 +133,8 @@ class MilkingRecord {
 
   MilkingRecord copyWith({
     int? id,
+    String? uuid,
+    int? serverId,
     int? userId,
     int? cattleId,
     int? historicalLotId,
@@ -130,10 +143,15 @@ class MilkingRecord {
     String? shift,
     double? liters,
     String? observations,
+    String? syncStatus,
     DateTime? createdAt,
+    DateTime? updatedAt,
+    String? lastSyncError,
   }) {
     return MilkingRecord(
       id: id ?? this.id,
+      uuid: uuid ?? this.uuid,
+      serverId: serverId ?? this.serverId,
       userId: userId ?? this.userId,
       cattleId: cattleId ?? this.cattleId,
       historicalLotId: historicalLotId ?? this.historicalLotId,
@@ -142,7 +160,10 @@ class MilkingRecord {
       shift: shift ?? this.shift,
       liters: liters ?? this.liters,
       observations: observations ?? this.observations,
+      syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      lastSyncError: lastSyncError ?? this.lastSyncError,
     );
   }
 
@@ -154,9 +175,7 @@ class MilkingRecord {
     DateTime date,
   ) {
     final String year = date.year.toString();
-
     final String month = date.month.toString().padLeft(2, '0');
-
     final String day = date.day.toString().padLeft(2, '0');
 
     return '$year-$month-$day';

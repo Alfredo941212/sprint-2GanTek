@@ -1,333 +1,276 @@
-import 'package:sqflite/sqflite.dart';
+import 'dart:convert';
 
-import 'package:gantek/core/database/database_helper.dart';
-import 'package:gantek/features/reports/data/models/report_summary.dart';
+import '../../../../core/network/api_client.dart';
+import '../models/report_summary.dart';
 
 class ReportRepository {
-  ReportRepository({
-    DatabaseHelper? databaseHelper,
-  }) : _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
+  ReportRepository();
 
-  final DatabaseHelper _databaseHelper;
+  // =========================================================
+  // RESUMEN GENERAL
+  // =========================================================
 
   Future<ReportSummary> getSummary({
     required int userId,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    final Database database = await _databaseHelper.database;
-
-    // =======================================================
-    // RANGO DE FECHAS
-    // =======================================================
-
     final DateTime now = DateTime.now();
 
-    final DateTime defaultStart = DateTime(
-      now.year,
-      now.month,
-      1,
+    final DateTime start = startDate ??
+        DateTime(
+          now.year,
+          now.month,
+          1,
+        );
+
+    final DateTime end = endDate ?? now;
+
+    final List<dynamic> responses = await Future.wait([
+      ApiClient.instance.get('/ganado'),
+      ApiClient.instance.get('/ordenios'),
+      ApiClient.instance.get('/vacunaciones'),
+    ]);
+
+    final ganadoResponse = responses[0];
+    final ordeniosResponse = responses[1];
+    final vacunacionesResponse = responses[2];
+
+    _validateResponse(
+      ganadoResponse.statusCode,
+      'ganado',
     );
 
-    final DateTime defaultEnd = DateTime(
-      now.year,
-      now.month + 1,
-      1,
-    ).subtract(
-      const Duration(days: 1),
+    _validateResponse(
+      ordeniosResponse.statusCode,
+      'ordeños',
     );
 
-    final DateTime normalizedStart = DateTime(
-      (startDate ?? defaultStart).year,
-      (startDate ?? defaultStart).month,
-      (startDate ?? defaultStart).day,
+    _validateResponse(
+      vacunacionesResponse.statusCode,
+      'vacunaciones',
     );
 
-    final DateTime normalizedEnd = DateTime(
-      (endDate ?? defaultEnd).year,
-      (endDate ?? defaultEnd).month,
-      (endDate ?? defaultEnd).day,
-    );
+    final List<Map<String, dynamic>> cattle = _extractList(ganadoResponse.body);
 
-    final String startDateText = _formatDate(
-      normalizedStart,
-    );
+    final List<Map<String, dynamic>> milkings =
+        _extractList(ordeniosResponse.body);
 
-    final String endDateText = _formatDate(
-      normalizedEnd,
-    );
+    final List<Map<String, dynamic>> vaccinations =
+        _extractList(vacunacionesResponse.body);
 
     // =======================================================
-    // GANADO TOTAL
+    // GANADO
     // =======================================================
 
-    final int totalCattle = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-            SELECT COUNT(*)
-            FROM ${DatabaseHelper.cattleTable}
-            WHERE user_id = ?
-              AND status = 'Activo'
-            ''',
-            [
-              userId,
-            ],
-          ),
-        ) ??
-        0;
+    final List<Map<String, dynamic>> activeCattle = cattle.where(
+      (animal) {
+        return _value(
+              animal,
+              ['estado', 'status'],
+            ).toLowerCase() ==
+            'activo';
+      },
+    ).toList();
+
+    final int totalCattle = activeCattle.length;
+
+    final int productiveCattle = activeCattle.where(
+      (animal) {
+        final String sex = _value(
+          animal,
+          ['sexo', 'sex'],
+        ).toLowerCase();
+
+        final String productiveStatus = _value(
+          animal,
+          [
+            'estado_productivo',
+            'productive_status',
+          ],
+        ).toLowerCase();
+
+        return sex == 'hembra' && productiveStatus == 'en producción';
+      },
+    ).length;
+
+    final int dryCattle = activeCattle.where(
+      (animal) {
+        final String sex = _value(
+          animal,
+          ['sexo', 'sex'],
+        ).toLowerCase();
+
+        final String productiveStatus = _value(
+          animal,
+          [
+            'estado_productivo',
+            'productive_status',
+          ],
+        ).toLowerCase();
+
+        return sex == 'hembra' && productiveStatus == 'seca';
+      },
+    ).length;
 
     // =======================================================
-    // VACAS EN PRODUCCIÓN
+    // ORDEÑOS DEL PERIODO
     // =======================================================
 
-    final int productiveCattle = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-            SELECT COUNT(*)
-            FROM ${DatabaseHelper.cattleTable}
-            WHERE user_id = ?
-              AND status = 'Activo'
-              AND sex = 'Hembra'
-              AND productive_status = 'En producción'
-            ''',
-            [
-              userId,
-            ],
-          ),
-        ) ??
-        0;
+    final List<Map<String, dynamic>> periodMilkings = milkings.where(
+      (milking) {
+        final DateTime? date = _parseDate(
+          milking['fecha'] ?? milking['date'],
+        );
 
-    // =======================================================
-    // VACAS SECAS
-    // =======================================================
+        if (date == null) {
+          return false;
+        }
 
-    final int dryCattle = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-            SELECT COUNT(*)
-            FROM ${DatabaseHelper.cattleTable}
-            WHERE user_id = ?
-              AND status = 'Activo'
-              AND sex = 'Hembra'
-              AND productive_status = 'Seca'
-            ''',
-            [
-              userId,
-            ],
-          ),
-        ) ??
-        0;
+        return !_dateOnly(date).isBefore(
+              _dateOnly(start),
+            ) &&
+            !_dateOnly(date).isAfter(
+              _dateOnly(end),
+            );
+      },
+    ).toList();
 
-    // =======================================================
-    // PRODUCCIÓN DE LECHE DEL PERIODO
-    // =======================================================
+    double totalMilkProduction = 0.0;
 
-    final List<Map<String, dynamic>> milkResult = await database.rawQuery(
-      '''
-      SELECT
-        COALESCE(
-          SUM(liters),
-          0
-        ) AS total_liters,
-        COUNT(*) AS total_milkings,
-        COUNT(
-          DISTINCT date
-        ) AS production_days
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND date >= ?
-        AND date <= ?
-      ''',
-      [
-        userId,
-        startDateText,
-        endDateText,
-      ],
-    );
+    final Set<String> productionDays = {};
 
-    final Map<String, dynamic> milkData = milkResult.first;
+    for (final milking in periodMilkings) {
+      totalMilkProduction += _toDouble(
+        milking['litros'] ?? milking['liters'],
+      );
 
-    final double totalMilkProduction =
-        (milkData['total_liters'] as num?)?.toDouble() ?? 0.0;
+      final DateTime? date = _parseDate(
+        milking['fecha'] ?? milking['date'],
+      );
 
-    final int totalMilkings =
-        (milkData['total_milkings'] as num?)?.toInt() ?? 0;
+      if (date != null) {
+        productionDays.add(
+          _formatDate(date),
+        );
+      }
+    }
 
-    final int productionDays =
-        (milkData['production_days'] as num?)?.toInt() ?? 0;
+    final int totalMilkings = periodMilkings.length;
 
-    // =======================================================
-    // PROMEDIO DIARIO
-    // =======================================================
-
-    final double averageDailyProduction =
-        productionDays > 0 ? totalMilkProduction / productionDays : 0.0;
-
-    // =======================================================
-    // PROMEDIO POR VACA
-    // =======================================================
+    final double averageDailyProduction = productionDays.isNotEmpty
+        ? totalMilkProduction / productionDays.length
+        : 0.0;
 
     final double averageProductionPerCow =
         productiveCattle > 0 ? totalMilkProduction / productiveCattle : 0.0;
 
     // =======================================================
-    // VACUNAS APLICADAS
+    // VACUNACIONES
     // =======================================================
 
-    final List<String> vaccineConditions = [
-      'user_id = ?',
-    ];
+    int appliedVaccines = 0;
+    int upcomingVaccines = 0;
+    int overdueVaccines = 0;
 
-    final List<Object?> vaccineArguments = [
-      userId,
-    ];
-
-    if (startDate != null) {
-      vaccineConditions.add(
-        'application_date >= ?',
-      );
-
-      vaccineArguments.add(
-        startDateText,
-      );
-    }
-
-    if (endDate != null) {
-      vaccineConditions.add(
-        'application_date <= ?',
-      );
-
-      vaccineArguments.add(
-        endDateText,
-      );
-    }
-
-    final int appliedVaccines = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE ${vaccineConditions.join(' AND ')}
-                ''',
-            vaccineArguments,
-          ),
-        ) ??
-        0;
-
-    // =======================================================
-    // VACUNAS PRÓXIMAS Y VENCIDAS
-    // =======================================================
-
-    final DateTime today = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    );
+    final DateTime today = _dateOnly(now);
 
     final DateTime nextThirtyDays = today.add(
-      const Duration(
-        days: 30,
-      ),
+      const Duration(days: 30),
     );
 
-    final String todayText = _formatDate(
-      today,
-    );
+    for (final vaccination in vaccinations) {
+      final DateTime? applicationDate = _parseDate(
+        vaccination['fecha_aplicacion'] ?? vaccination['application_date'],
+      );
 
-    final String nextThirtyDaysText = _formatDate(
-      nextThirtyDays,
-    );
+      if (applicationDate != null) {
+        final DateTime normalized = _dateOnly(applicationDate);
 
-    final int upcomingVaccines = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
-                  AND next_dose_date IS NOT NULL
-                  AND next_dose_date >= ?
-                  AND next_dose_date <= ?
-                ''',
-            [
-              userId,
-              todayText,
-              nextThirtyDaysText,
-            ],
-          ),
-        ) ??
-        0;
+        if (!normalized.isBefore(_dateOnly(start)) &&
+            !normalized.isAfter(_dateOnly(end))) {
+          appliedVaccines++;
+        }
+      }
 
-    final int overdueVaccines = Sqflite.firstIntValue(
-          await database.rawQuery(
-            '''
-                SELECT COUNT(*)
-                FROM ${DatabaseHelper.vaccinesTable}
-                WHERE user_id = ?
-                  AND next_dose_date IS NOT NULL
-                  AND next_dose_date < ?
-                ''',
-            [
-              userId,
-              todayText,
-            ],
-          ),
-        ) ??
-        0;
+      final DateTime? nextDate = _parseDate(
+        vaccination['proxima_aplicacion'] ?? vaccination['next_dose_date'],
+      );
+
+      if (nextDate == null) {
+        continue;
+      }
+
+      final DateTime normalizedNext = _dateOnly(nextDate);
+
+      if (normalizedNext.isBefore(today)) {
+        overdueVaccines++;
+      } else if (!normalizedNext.isAfter(
+        nextThirtyDays,
+      )) {
+        upcomingVaccines++;
+      }
+    }
 
     // =======================================================
     // ALERTAS DE BAJA PRODUCCIÓN
     // =======================================================
 
-    final List<Map<String, dynamic>> lowProductionResult =
-        await database.rawQuery(
-      '''
-      SELECT COUNT(*) AS total
-      FROM (
-        SELECT
-          c.id
-        FROM ${DatabaseHelper.cattleTable} c
+    int lowProductionAlerts = 0;
 
-        LEFT JOIN ${DatabaseHelper.milkingRecordsTable} m
-          ON m.cattle_id = c.id
-          AND m.user_id = c.user_id
-          AND m.date >= ?
-          AND m.date <= ?
+    for (final animal in activeCattle) {
+      final String sex = _value(
+        animal,
+        ['sexo', 'sex'],
+      ).toLowerCase();
 
-        WHERE c.user_id = ?
-          AND c.status = 'Activo'
-          AND c.sex = 'Hembra'
-          AND c.productive_status = 'En producción'
+      final String productiveStatus = _value(
+        animal,
+        [
+          'estado_productivo',
+          'productive_status',
+        ],
+      ).toLowerCase();
 
-        GROUP BY
-          c.id,
-          c.minimum_daily_production
+      if (sex != 'hembra' || productiveStatus != 'en producción') {
+        continue;
+      }
 
-        HAVING
-          COALESCE(
-            SUM(m.liters),
-            0
-          ) <
-          (
-            c.minimum_daily_production *
-            (
-              JULIANDAY(?) -
-              JULIANDAY(?) +
-              1
-            )
-          )
-      )
-      ''',
-      [
-        startDateText,
-        endDateText,
-        userId,
-        endDateText,
-        startDateText,
-      ],
-    );
+      final int? cattleId = _toInt(
+        animal['id'],
+      );
 
-    final int lowProductionAlerts =
-        (lowProductionResult.first['total'] as num?)?.toInt() ?? 0;
+      if (cattleId == null) {
+        continue;
+      }
+
+      final double minimumDailyProduction = _toDouble(
+        animal['produccion_minima_diaria'] ??
+            animal['minimum_daily_production'],
+      );
+
+      double cattleProduction = 0.0;
+
+      for (final milking in periodMilkings) {
+        final int? milkingCattleId = _toInt(
+          milking['ganado_id'] ?? milking['cattle_id'],
+        );
+
+        if (milkingCattleId == cattleId) {
+          cattleProduction += _toDouble(
+            milking['litros'] ?? milking['liters'],
+          );
+        }
+      }
+
+      final int days = _dateOnly(end).difference(_dateOnly(start)).inDays + 1;
+
+      final double expected = minimumDailyProduction * days;
+
+      if (cattleProduction < expected) {
+        lowProductionAlerts++;
+      }
+    }
 
     return ReportSummary(
       totalCattle: totalCattle,
@@ -353,83 +296,85 @@ class ReportRepository {
     DateTime? startDate,
     DateTime? endDate,
   }) async {
-    final Database database = await _databaseHelper.database;
-
     final DateTime now = DateTime.now();
 
-    final DateTime defaultStart = DateTime(
-      now.year,
-      now.month,
-      1,
+    final DateTime start = startDate ??
+        DateTime(
+          now.year,
+          now.month,
+          1,
+        );
+
+    final DateTime end = endDate ?? now;
+
+    final response = await ApiClient.instance.get(
+      '/ordenios',
     );
 
-    final DateTime defaultEnd = DateTime(
-      now.year,
-      now.month + 1,
-      1,
-    ).subtract(
-      const Duration(
-        days: 1,
-      ),
+    _validateResponse(
+      response.statusCode,
+      'ordeños',
     );
 
-    final DateTime normalizedStart = DateTime(
-      (startDate ?? defaultStart).year,
-      (startDate ?? defaultStart).month,
-      (startDate ?? defaultStart).day,
+    final List<Map<String, dynamic>> milkings = _extractList(response.body);
+
+    final Map<int, _LotAccumulator> totals = {};
+
+    for (final milking in milkings) {
+      final DateTime? date = _parseDate(
+        milking['fecha'] ?? milking['date'],
+      );
+
+      if (date == null ||
+          _dateOnly(date).isBefore(_dateOnly(start)) ||
+          _dateOnly(date).isAfter(_dateOnly(end))) {
+        continue;
+      }
+
+      final int lotId = _toInt(
+            milking['lote_historico_id'] ?? milking['historical_lot_id'],
+          ) ??
+          0;
+
+      String lotName = 'Sin lote';
+
+      final dynamic lot = milking['lote_historico'];
+
+      if (lot is Map) {
+        lotName = lot['nombre']?.toString() ?? 'Sin lote';
+      }
+
+      final double liters = _toDouble(
+        milking['litros'] ?? milking['liters'],
+      );
+
+      final _LotAccumulator current = totals[lotId] ??
+          _LotAccumulator(
+            name: lotName,
+            liters: 0,
+          );
+
+      totals[lotId] = _LotAccumulator(
+        name: current.name,
+        liters: current.liters + liters,
+      );
+    }
+
+    final List<LotProductionReport> result = totals.entries.map(
+      (entry) {
+        return LotProductionReport(
+          lotId: entry.key,
+          lotName: entry.value.name,
+          totalLiters: entry.value.liters,
+        );
+      },
+    ).toList();
+
+    result.sort(
+      (a, b) => b.totalLiters.compareTo(a.totalLiters),
     );
 
-    final DateTime normalizedEnd = DateTime(
-      (endDate ?? defaultEnd).year,
-      (endDate ?? defaultEnd).month,
-      (endDate ?? defaultEnd).day,
-    );
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT
-        l.id AS lot_id,
-        l.name AS lot_name,
-        COALESCE(
-          SUM(m.liters),
-          0
-        ) AS total_liters
-      FROM ${DatabaseHelper.lotsTable} l
-
-      LEFT JOIN ${DatabaseHelper.milkingRecordsTable} m
-        ON m.historical_lot_id = l.id
-        AND m.user_id = ?
-        AND m.date >= ?
-        AND m.date <= ?
-
-      WHERE l.user_id = ?
-        AND l.status = 'Activo'
-
-      GROUP BY
-        l.id,
-        l.name
-
-      ORDER BY
-        total_liters DESC,
-        l.name ASC
-      ''',
-      [
-        userId,
-        _formatDate(
-          normalizedStart,
-        ),
-        _formatDate(
-          normalizedEnd,
-        ),
-        userId,
-      ],
-    );
-
-    return result
-        .map(
-          LotProductionReport.fromMap,
-        )
-        .toList();
+    return result;
   }
 
   // =========================================================
@@ -442,110 +387,219 @@ class ReportRepository {
     DateTime? endDate,
     int limit = 10,
   }) async {
-    final Database database = await _databaseHelper.database;
-
-    final List<String> conditions = [
-      'm.user_id = ?',
-    ];
-
-    final List<Object?> arguments = [
-      userId,
-    ];
-
-    if (startDate != null) {
-      final DateTime normalizedStart = DateTime(
-        startDate.year,
-        startDate.month,
-        startDate.day,
-      );
-
-      conditions.add(
-        'm.date >= ?',
-      );
-
-      arguments.add(
-        _formatDate(
-          normalizedStart,
-        ),
-      );
-    }
-
-    if (endDate != null) {
-      final DateTime normalizedEnd = DateTime(
-        endDate.year,
-        endDate.month,
-        endDate.day,
-      );
-
-      conditions.add(
-        'm.date <= ?',
-      );
-
-      arguments.add(
-        _formatDate(
-          normalizedEnd,
-        ),
-      );
-    }
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT
-        m.id,
-        c.code AS cattle_code,
-        c.name AS cattle_name,
-        COALESCE(
-          l.name,
-          'Sin lote'
-        ) AS lot_name,
-        m.date,
-        m.milking_number,
-        m.shift,
-        m.liters
-      FROM ${DatabaseHelper.milkingRecordsTable} m
-
-      INNER JOIN ${DatabaseHelper.cattleTable} c
-        ON c.id = m.cattle_id
-
-      LEFT JOIN ${DatabaseHelper.lotsTable} l
-        ON l.id = m.historical_lot_id
-
-      WHERE ${conditions.join(' AND ')}
-
-      ORDER BY
-        m.date DESC,
-        m.milking_number DESC
-
-      LIMIT ?
-      ''',
-      [
-        ...arguments,
-        limit,
-      ],
+    final response = await ApiClient.instance.get(
+      '/ordenios',
     );
 
-    return result
-        .map(
-          RecentMilkingReport.fromMap,
-        )
-        .toList();
+    _validateResponse(
+      response.statusCode,
+      'ordeños',
+    );
+
+    final List<Map<String, dynamic>> milkings = _extractList(response.body);
+
+    final List<RecentMilkingReport> result = [];
+
+    for (final milking in milkings) {
+      final DateTime? date = _parseDate(
+        milking['fecha'] ?? milking['date'],
+      );
+
+      if (date == null) {
+        continue;
+      }
+
+      if (startDate != null &&
+          _dateOnly(date).isBefore(
+            _dateOnly(startDate),
+          )) {
+        continue;
+      }
+
+      if (endDate != null &&
+          _dateOnly(date).isAfter(
+            _dateOnly(endDate),
+          )) {
+        continue;
+      }
+
+      final dynamic cattle = milking['ganado'];
+
+      final dynamic lot = milking['lote_historico'];
+
+      String cattleCode = '';
+      String? cattleName;
+      String lotName = 'Sin lote';
+
+      if (cattle is Map) {
+        cattleCode = cattle['arete_siniiga']?.toString() ??
+            cattle['codigo']?.toString() ??
+            '';
+
+        cattleName = cattle['nombre']?.toString();
+      }
+
+      if (lot is Map) {
+        lotName = lot['nombre']?.toString() ?? 'Sin lote';
+      }
+
+      result.add(
+        RecentMilkingReport(
+          id: _toInt(milking['id']) ?? 0,
+          cattleCode: cattleCode,
+          cattleName: cattleName,
+          lotName: lotName,
+          date: date,
+          milkingNumber: _toInt(
+                milking['numero_ordenio'] ?? milking['milking_number'],
+              ) ??
+              0,
+          shift: (milking['turno'] ?? milking['shift'])?.toString(),
+          liters: _toDouble(
+            milking['litros'] ?? milking['liters'],
+          ),
+        ),
+      );
+    }
+
+    result.sort(
+      (a, b) {
+        final int dateComparison = b.date.compareTo(a.date);
+
+        if (dateComparison != 0) {
+          return dateComparison;
+        }
+
+        return b.milkingNumber.compareTo(
+          a.milkingNumber,
+        );
+      },
+    );
+
+    if (result.length > limit) {
+      return result.take(limit).toList();
+    }
+
+    return result;
   }
 
-  String _formatDate(
-    DateTime date,
+  // =========================================================
+  // HELPERS
+  // =========================================================
+
+  List<Map<String, dynamic>> _extractList(
+    String body,
   ) {
-    final String year = date.year.toString();
+    final dynamic decoded = jsonDecode(body);
 
-    final String month = date.month.toString().padLeft(
-          2,
-          '0',
-        );
+    if (decoded is! Map<String, dynamic>) {
+      return [];
+    }
 
-    final String day = date.day.toString().padLeft(
-          2,
-          '0',
-        );
+    final dynamic data = decoded['data'];
 
-    return '$year-$month-$day';
+    if (data is! List) {
+      return [];
+    }
+
+    return data.whereType<Map<String, dynamic>>().toList();
   }
+
+  void _validateResponse(
+    int statusCode,
+    String module,
+  ) {
+    if (statusCode == 401) {
+      throw Exception(
+        'La sesión ha expirado. Inicia sesión nuevamente.',
+      );
+    }
+
+    if (statusCode < 200 || statusCode >= 300) {
+      throw Exception(
+        'No fue posible cargar $module '
+        '($statusCode).',
+      );
+    }
+  }
+
+  String _value(
+    Map<String, dynamic> map,
+    List<String> keys,
+  ) {
+    for (final String key in keys) {
+      final dynamic value = map[key];
+
+      if (value != null) {
+        return value.toString().trim();
+      }
+    }
+
+    return '';
+  }
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+
+    return DateTime.tryParse(
+      value.toString(),
+    );
+  }
+
+  DateTime _dateOnly(DateTime date) {
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+    );
+  }
+
+  String _formatDate(DateTime date) {
+    final String month = date.month.toString().padLeft(2, '0');
+
+    final String day = date.day.toString().padLeft(2, '0');
+
+    return '${date.year}-$month-$day';
+  }
+
+  int? _toInt(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(
+      value.toString(),
+    );
+  }
+
+  double _toDouble(dynamic value) {
+    if (value == null) {
+      return 0.0;
+    }
+
+    if (value is num) {
+      return value.toDouble();
+    }
+
+    return double.tryParse(
+          value.toString(),
+        ) ??
+        0.0;
+  }
+}
+
+class _LotAccumulator {
+  final String name;
+  final double liters;
+
+  const _LotAccumulator({
+    required this.name,
+    required this.liters,
+  });
 }

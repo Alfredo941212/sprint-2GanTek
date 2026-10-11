@@ -1,9 +1,14 @@
+import 'dart:convert';
+
 import 'package:bcrypt/bcrypt.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+
 import '../../../../core/database/database_helper.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/session/session_manager.dart';
 import '../models/user_model.dart';
 
 class AuthRepository {
@@ -299,20 +304,28 @@ class AuthRepository {
         );
       }
 
+      // ============================================================
+      // 1. INICIAR SESIÓN CON GOOGLE
+      // ============================================================
+
       final GoogleSignInAccount googleUser = await googleSignIn.authenticate();
 
       final GoogleSignInAuthentication googleAuth = googleUser.authentication;
 
-      final String? idToken = googleAuth.idToken;
+      final String? googleIdToken = googleAuth.idToken;
 
-      if (idToken == null) {
+      if (googleIdToken == null || googleIdToken.isEmpty) {
         throw Exception(
           'Google no devolvió el token de autenticación.',
         );
       }
 
+      // ============================================================
+      // 2. AUTENTICAR CON FIREBASE
+      // ============================================================
+
       final OAuthCredential credential = GoogleAuthProvider.credential(
-        idToken: idToken,
+        idToken: googleIdToken,
       );
 
       final UserCredential userCredential =
@@ -328,68 +341,137 @@ class AuthRepository {
         );
       }
 
-      final String email =
-          (firebaseUser.email ?? googleUser.email).trim().toLowerCase();
+      // ============================================================
+      // 3. OBTENER EL FIREBASE ID TOKEN
+      // ============================================================
 
-      final String fullName = (firebaseUser.displayName ??
-              googleUser.displayName ??
-              'Usuario Google')
-          .trim();
+      final String? firebaseIdToken = await firebaseUser.getIdToken(true);
 
-      final Database database = await _databaseHelper.database;
-
-      // ----------------------------------------------------------
-      // 1. Buscar si el usuario ya existe en SQLite
-      // ----------------------------------------------------------
-
-      final List<Map<String, dynamic>> existingUsers = await database.query(
-        DatabaseHelper.usersTable,
-        where: 'email = ?',
-        whereArgs: [email],
-        limit: 1,
-      );
-
-      if (existingUsers.isNotEmpty) {
-        return UserModel.fromMap(
-          existingUsers.first,
+      if (firebaseIdToken == null || firebaseIdToken.isEmpty) {
+        throw Exception(
+          'Firebase no devolvió un ID Token válido.',
         );
       }
 
-      // ----------------------------------------------------------
-      // 2. Si no existe, crear usuario local
-      // ----------------------------------------------------------
+      print('==============================');
+      print('GOOGLE + FIREBASE OK');
+      print('Correo: ${firebaseUser.email}');
+      print('Enviando Firebase ID Token a Laravel...');
+      print('==============================');
 
-      final UserModel newUser = UserModel(
+      // ============================================================
+      // 4. ENVIAR EL FIREBASE ID TOKEN A LARAVEL
+      // ============================================================
+
+      final response = await ApiClient.instance.post(
+        '/auth/google',
+        body: {
+          'id_token': firebaseIdToken,
+        },
+      );
+
+      print('==============================');
+      print('RESPUESTA LARAVEL GOOGLE');
+      print('Status: ${response.statusCode}');
+      print('Body: ${response.body}');
+      print('==============================');
+
+      final dynamic decodedBody = jsonDecode(response.body);
+
+      if (decodedBody is! Map<String, dynamic>) {
+        throw Exception(
+          'Laravel devolvió una respuesta inválida.',
+        );
+      }
+
+      final Map<String, dynamic> responseData = decodedBody;
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          responseData['message']?.toString() ??
+              'Laravel no pudo validar la cuenta de Google.',
+        );
+      }
+
+      // ============================================================
+      // 5. OBTENER TOKEN SANCTUM
+      // ============================================================
+
+      final String sanctumToken = responseData['token']?.toString() ?? '';
+
+      if (sanctumToken.isEmpty) {
+        throw Exception(
+          'Laravel no devolvió el token de sesión.',
+        );
+      }
+
+      final dynamic laravelUserData = responseData['user'];
+
+      if (laravelUserData is! Map) {
+        throw Exception(
+          'Laravel no devolvió los datos del usuario.',
+        );
+      }
+
+      final String email =
+          (laravelUserData['email'] ?? firebaseUser.email ?? googleUser.email)
+              .toString()
+              .trim()
+              .toLowerCase();
+
+      final String fullName = (laravelUserData['name'] ??
+              firebaseUser.displayName ??
+              googleUser.displayName ??
+              'Usuario Google')
+          .toString()
+          .trim();
+
+      if (email.isEmpty) {
+        throw Exception(
+          'No fue posible obtener el correo del usuario.',
+        );
+      }
+
+      // ============================================================
+      // 6. CREAR O RECUPERAR USUARIO LOCAL
+      // ============================================================
+
+      final UserModel localUser = await createLocalUser(
         fullName: fullName.isEmpty ? 'Usuario Google' : fullName,
         email: email,
         phone: '',
-        passwordHash: hashPassword(
-          'google:${firebaseUser.uid}',
-        ),
-        role: 'ganadero',
-        createdAt: DateTime.now(),
       );
 
-      final Map<String, dynamic> data = newUser.toMap();
+      // ============================================================
+      // 7. GUARDAR SESIÓN LOCAL + TOKEN SANCTUM
+      // ============================================================
 
-      data.remove('id');
-
-      final int userId = await database.insert(
-        DatabaseHelper.usersTable,
-        data,
-        conflictAlgorithm: ConflictAlgorithm.abort,
+      await SessionManager.instance.setCurrentUser(
+        localUser,
       );
 
-      return newUser.copyWith(
-        id: userId,
+      await SessionManager.instance.setApiToken(
+        sanctumToken,
       );
+
+      print('==============================');
+      print('SESIÓN GOOGLE COMPLETADA');
+      print('Usuario local ID: ${localUser.id}');
+      print(
+        'Token Sanctum guardado: ${sanctumToken.isNotEmpty}',
+      );
+      print('==============================');
+
+      return localUser;
     } on GoogleSignInException catch (error) {
       throw Exception(
-        'Error de Google: ${error.description ?? error.code.name}',
+        'Error de Google: '
+        '${error.description ?? error.code.name}',
       );
     } on FirebaseAuthException catch (error) {
       throw Exception(
-        'Error de Firebase: ${error.message ?? error.code}',
+        'Error de Firebase: '
+        '${error.message ?? error.code}',
       );
     } catch (error) {
       throw Exception(
@@ -400,8 +482,15 @@ class AuthRepository {
 
   Future<UserModel?> signInWithFacebook() async {
     try {
+      // ============================================================
+      // 1. INICIAR SESIÓN CON FACEBOOK
+      // ============================================================
+
       final LoginResult result = await FacebookAuth.instance.login(
-        permissions: ['email', 'public_profile'],
+        permissions: [
+          'email',
+          'public_profile',
+        ],
       );
 
       if (result.status != LoginStatus.success) {
@@ -422,6 +511,10 @@ class AuthRepository {
         );
       }
 
+      // ============================================================
+      // 2. AUTENTICAR FACEBOOK CON FIREBASE
+      // ============================================================
+
       final OAuthCredential credential = FacebookAuthProvider.credential(
         accessToken.tokenString,
       );
@@ -439,13 +532,83 @@ class AuthRepository {
         );
       }
 
-      final Map<String, dynamic> facebookData =
-          await FacebookAuth.instance.getUserData(
-        fields: 'name,email',
+      // ============================================================
+      // 3. OBTENER FIREBASE ID TOKEN
+      // ============================================================
+
+      final String? firebaseIdToken = await firebaseUser.getIdToken(true);
+
+      if (firebaseIdToken == null || firebaseIdToken.isEmpty) {
+        throw Exception(
+          'Firebase no devolvió un ID Token válido.',
+        );
+      }
+
+      print('==============================');
+      print('FACEBOOK + FIREBASE OK');
+      print('Correo: ${firebaseUser.email}');
+      print('Enviando Firebase ID Token a Laravel...');
+      print('==============================');
+
+      // ============================================================
+      // 4. ENVIAR TOKEN DE FIREBASE A LARAVEL
+      // ============================================================
+
+      final response = await ApiClient.instance.post(
+        '/auth/facebook',
+        body: {
+          'id_token': firebaseIdToken,
+        },
       );
 
+      print('==============================');
+      print('RESPUESTA LARAVEL FACEBOOK');
+      print('Status: ${response.statusCode}');
+      print('Body: ${response.body}');
+      print('==============================');
+
+      final dynamic decodedBody = jsonDecode(
+        response.body,
+      );
+
+      if (decodedBody is! Map<String, dynamic>) {
+        throw Exception(
+          'Laravel devolvió una respuesta inválida.',
+        );
+      }
+
+      final Map<String, dynamic> responseData = decodedBody;
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          responseData['message']?.toString() ??
+              'Laravel no pudo validar la cuenta de Facebook.',
+        );
+      }
+
+      // ============================================================
+      // 5. OBTENER TOKEN SANCTUM
+      // ============================================================
+
+      final String sanctumToken = responseData['token']?.toString() ?? '';
+
+      if (sanctumToken.isEmpty) {
+        throw Exception(
+          'Laravel no devolvió el token de sesión.',
+        );
+      }
+
+      final dynamic laravelUserData = responseData['user'];
+
+      if (laravelUserData is! Map) {
+        throw Exception(
+          'Laravel no devolvió los datos del usuario.',
+        );
+      }
+
       final String email =
-          (firebaseUser.email ?? facebookData['email']?.toString() ?? '')
+          (laravelUserData['email'] ?? firebaseUser.email ?? '')
+              .toString()
               .trim()
               .toLowerCase();
 
@@ -455,53 +618,47 @@ class AuthRepository {
         );
       }
 
-      final String fullName = (firebaseUser.displayName ??
-              facebookData['name']?.toString() ??
+      final String fullName = (laravelUserData['name'] ??
+              firebaseUser.displayName ??
               'Usuario Facebook')
+          .toString()
           .trim();
 
-      final Database database = await _databaseHelper.database;
+      // ============================================================
+      // 6. CREAR O RECUPERAR USUARIO LOCAL
+      // ============================================================
 
-      final List<Map<String, dynamic>> existingUsers = await database.query(
-        DatabaseHelper.usersTable,
-        where: 'email = ?',
-        whereArgs: [email],
-        limit: 1,
-      );
-
-      if (existingUsers.isNotEmpty) {
-        return UserModel.fromMap(
-          existingUsers.first,
-        );
-      }
-
-      final UserModel newUser = UserModel(
+      final UserModel localUser = await createLocalUser(
         fullName: fullName.isEmpty ? 'Usuario Facebook' : fullName,
         email: email,
         phone: '',
-        passwordHash: hashPassword(
-          'facebook:${firebaseUser.uid}',
-        ),
-        role: 'ganadero',
-        createdAt: DateTime.now(),
       );
 
-      final Map<String, dynamic> data = newUser.toMap();
+      // ============================================================
+      // 7. GUARDAR USUARIO + TOKEN SANCTUM
+      // ============================================================
 
-      data.remove('id');
-
-      final int userId = await database.insert(
-        DatabaseHelper.usersTable,
-        data,
-        conflictAlgorithm: ConflictAlgorithm.abort,
+      await SessionManager.instance.setCurrentUser(
+        localUser,
       );
 
-      return newUser.copyWith(
-        id: userId,
+      await SessionManager.instance.setApiToken(
+        sanctumToken,
       );
+
+      print('==============================');
+      print('SESIÓN FACEBOOK COMPLETADA');
+      print('Usuario local ID: ${localUser.id}');
+      print(
+        'Token Sanctum guardado: ${sanctumToken.isNotEmpty}',
+      );
+      print('==============================');
+
+      return localUser;
     } on FirebaseAuthException catch (error) {
       throw Exception(
-        'Error de Firebase: ${error.message ?? error.code}',
+        'Error de Firebase: '
+        '${error.message ?? error.code}',
       );
     } catch (error) {
       throw Exception(

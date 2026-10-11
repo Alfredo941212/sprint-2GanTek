@@ -1,6 +1,10 @@
 import 'dart:convert';
 
+import 'package:sqflite/sqflite.dart';
+
+import '../../../../core/database/database_helper.dart';
 import '../../../../core/network/api_client.dart';
+import '../../../../core/session/session_manager.dart';
 import '../../../cattle/data/repositories/cattle_repository.dart';
 import '../models/lot.dart';
 
@@ -8,6 +12,41 @@ class LotRepository {
   LotRepository();
 
   final CattleRepository _cattleRepository = CattleRepository();
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+
+  int? _toInt(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+
+    if (value is int) {
+      return value;
+    }
+
+    if (value is num) {
+      return value.toInt();
+    }
+
+    return int.tryParse(value.toString());
+  }
+
+  Future<int> _getCurrentLocalUserId() async {
+    final currentUser = SessionManager.instance.currentUser;
+
+    if (currentUser?.id != null) {
+      return currentUser!.id!;
+    }
+
+    final int? storedUserId = await SessionManager.instance.getStoredUserId();
+
+    if (storedUserId == null) {
+      throw Exception(
+        'No se encontró una sesión local activa.',
+      );
+    }
+
+    return storedUserId;
+  }
 
   // =========================================================
   // REGISTRAR LOTE
@@ -81,21 +120,106 @@ class LotRepository {
       );
     }
 
-    final dynamic id = data['id'];
+    final Map<String, dynamic> apiLot = Map<String, dynamic>.from(data);
 
-    if (id is num) {
-      return id.toInt();
-    }
+    // Guardar inmediatamente la respuesta de Laravel en SQLite.
+    await _saveApiLotsLocally(
+      [apiLot],
+    );
 
-    final int? parsedId = int.tryParse(id?.toString() ?? '');
+    final int? serverId = _toInt(apiLot['id']);
 
-    if (parsedId == null) {
+    if (serverId == null) {
       throw Exception(
         'El servidor no devolvió un identificador válido para el lote.',
       );
     }
 
-    return parsedId;
+    // Recuperar el ID LOCAL de SQLite.
+    final Database database = await _databaseHelper.database;
+    final int userId = await _getCurrentLocalUserId();
+
+    final List<Map<String, dynamic>> localRows = await database.query(
+      DatabaseHelper.lotsTable,
+      columns: ['id'],
+      where: 'user_id = ? AND server_id = ?',
+      whereArgs: [userId, serverId],
+      limit: 1,
+    );
+
+    if (localRows.isEmpty) {
+      throw Exception(
+        'El lote se registró en el servidor, '
+        'pero no pudo guardarse localmente.',
+      );
+    }
+
+    return localRows.first['id'] as int;
+  }
+
+  Future<List<Lot>> _getLocalLots() async {
+    final Database database = await _databaseHelper.database;
+    final int userId = await _getCurrentLocalUserId();
+
+    final List<Map<String, dynamic>> rows = await database.query(
+      DatabaseHelper.lotsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'name COLLATE NOCASE ASC',
+    );
+
+    return rows.map(Lot.fromMap).toList();
+  }
+
+  Future<void> _saveApiLotsLocally(
+    List<Map<String, dynamic>> apiLots,
+  ) async {
+    final Database database = await _databaseHelper.database;
+    final int userId = await _getCurrentLocalUserId();
+
+    await database.transaction((Transaction transaction) async {
+      for (final Map<String, dynamic> apiLot in apiLots) {
+        final Lot serverLot = Lot.fromApi(
+          apiLot,
+          userId: userId,
+        );
+
+        final int? serverId = serverLot.serverId;
+
+        if (serverId == null) {
+          continue;
+        }
+
+        final List<Map<String, dynamic>> existing = await transaction.query(
+          DatabaseHelper.lotsTable,
+          columns: ['id'],
+          where: 'user_id = ? AND server_id = ?',
+          whereArgs: [userId, serverId],
+          limit: 1,
+        );
+
+        final Map<String, dynamic> data = serverLot.toMap();
+        data.remove('id');
+        data['description'] ??= '';
+
+        if (existing.isEmpty) {
+          await transaction.insert(
+            DatabaseHelper.lotsTable,
+            data,
+            conflictAlgorithm: ConflictAlgorithm.abort,
+          );
+        } else {
+          final int localId = existing.first['id'] as int;
+
+          await transaction.update(
+            DatabaseHelper.lotsTable,
+            data,
+            where: 'id = ?',
+            whereArgs: [localId],
+          );
+        }
+      }
+    });
   }
 
   // =========================================================
@@ -103,42 +227,58 @@ class LotRepository {
   // =========================================================
 
   Future<List<Lot>> getAllLots() async {
-    final response = await ApiClient.instance.get(
-      '/lotes',
-    );
+    // =========================================================
+    // 1. INTENTAR ACTUALIZAR DESDE LARAVEL
+    // =========================================================
 
-    if (response.statusCode == 401) {
-      throw Exception(
-        'La sesión ha expirado. Inicia sesión nuevamente.',
+    try {
+      final response = await ApiClient.instance.get(
+        '/lotes',
       );
+
+      if (response.statusCode == 200) {
+        final dynamic decoded = jsonDecode(
+          response.body,
+        );
+
+        if (decoded is Map<String, dynamic>) {
+          final dynamic data = decoded['data'];
+
+          if (data is List) {
+            final List<Map<String, dynamic>> apiLots =
+                data.whereType<Map<String, dynamic>>().toList();
+
+            // Guardamos/actualizamos la copia local.
+            await _saveApiLotsLocally(
+              apiLots,
+            );
+          }
+        }
+      } else if (response.statusCode == 401) {
+        // Si existe información local, todavía puede utilizarse
+        // para el funcionamiento offline.
+        final List<Lot> localLots = await _getLocalLots();
+
+        if (localLots.isNotEmpty) {
+          return localLots;
+        }
+
+        throw Exception(
+          'La sesión ha expirado. Inicia sesión nuevamente.',
+        );
+      }
+    } catch (e, stackTrace) {
+      print('=== ERROR SINCRONIZANDO LOTES ===');
+      print('Error: $e');
+      print('StackTrace: $stackTrace');
+      print('=================================');
     }
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'No fue posible cargar los lotes '
-        '(${response.statusCode}).',
-      );
-    }
+    // =========================================================
+    // 2. SQLITE ES LA FUENTE QUE UTILIZA LA APP
+    // =========================================================
 
-    final dynamic decoded = jsonDecode(
-      response.body,
-    );
-
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception(
-        'El servidor devolvió una respuesta inválida.',
-      );
-    }
-
-    final dynamic data = decoded['data'];
-
-    if (data is! List) {
-      throw Exception(
-        'El servidor no devolvió la lista de lotes.',
-      );
-    }
-
-    return data.whereType<Map<String, dynamic>>().map(Lot.fromApi).toList();
+    return _getLocalLots();
   }
 
   // =========================================================
@@ -212,7 +352,10 @@ class LotRepository {
       );
     }
 
-    return Lot.fromApi(data);
+    return Lot.fromApi(
+      data,
+      localId: lotId,
+    );
   }
 
   // =========================================================

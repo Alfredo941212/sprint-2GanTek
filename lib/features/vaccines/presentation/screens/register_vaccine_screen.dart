@@ -132,21 +132,45 @@ class _RegisterVaccineScreenState extends State<RegisterVaccineScreen> {
         return;
       }
 
+      final VaccineRecord? vaccination = widget.vaccine;
+
       Cattle? selectedCattle;
 
-      final VaccineRecord? vaccine = widget.vaccine;
-
-      if (vaccine != null) {
+      // Si estamos editando, la vacunación recibida desde Laravel
+      // contiene el ID del servidor del ganado.
+      if (vaccination != null) {
         for (final Cattle cattle in result) {
-          if (cattle.id == vaccine.cattleId) {
+          final bool sameLocalId = cattle.id == vaccination.cattleId;
+
+          final bool sameServerId = cattle.serverId == vaccination.cattleId;
+
+          if (sameLocalId || sameServerId) {
             selectedCattle = cattle;
             break;
           }
         }
       }
 
+      // Solo ganado vigente para nuevas selecciones.
+      final List<Cattle> availableCattle = result.where(
+        (Cattle cattle) {
+          final String status = cattle.status.trim().toLowerCase();
+
+          return status == 'activo';
+        },
+      ).toList();
+
+      // Si estamos editando una vacunación histórica y su animal
+      // ya no está activo, lo conservamos para mostrar la relación.
+      if (selectedCattle != null &&
+          !availableCattle.any(
+            (Cattle cattle) => cattle.id == selectedCattle!.id,
+          )) {
+        availableCattle.add(selectedCattle);
+      }
+
       setState(() {
-        _cattleList = result;
+        _cattleList = availableCattle;
         _selectedCattle = selectedCattle;
       });
     } catch (error) {

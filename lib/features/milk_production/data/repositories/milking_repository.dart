@@ -2,6 +2,7 @@ import '../../../../core/database/database_helper.dart';
 import '../../../../core/session/session_manager.dart';
 import '../models/milking_record.dart';
 import 'dart:convert';
+import 'dart:math';
 import '../../../../core/network/api_client.dart';
 
 class MilkingRepository {
@@ -27,48 +28,273 @@ class MilkingRepository {
     return userId;
   }
 
+  String _generateUuid() {
+    final Random random = Random.secure();
+
+    final List<int> bytes = List<int>.generate(
+      16,
+      (_) => random.nextInt(256),
+    );
+
+    // UUID versión 4.
+    bytes[6] = (bytes[6] & 0x0F) | 0x40;
+
+    // Variante RFC 4122.
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+
+    String hex(int value) {
+      return value.toRadixString(16).padLeft(2, '0');
+    }
+
+    return '${hex(bytes[0])}${hex(bytes[1])}${hex(bytes[2])}${hex(bytes[3])}-'
+        '${hex(bytes[4])}${hex(bytes[5])}-'
+        '${hex(bytes[6])}${hex(bytes[7])}-'
+        '${hex(bytes[8])}${hex(bytes[9])}-'
+        '${hex(bytes[10])}${hex(bytes[11])}${hex(bytes[12])}'
+        '${hex(bytes[13])}${hex(bytes[14])}${hex(bytes[15])}';
+  }
+
+  Future<bool> _syncMilkingByLocalId(
+    int localMilkingId,
+  ) async {
+    final database = await _databaseHelper.database;
+    final int userId = await _requireUserId();
+
+    final List<Map<String, dynamic>> rows = await database.rawQuery(
+      '''
+    SELECT
+      m.*,
+      c.server_id AS cattle_server_id,
+      l.server_id AS lot_server_id
+    FROM ${DatabaseHelper.milkingRecordsTable} m
+    INNER JOIN ${DatabaseHelper.cattleTable} c
+      ON c.id = m.cattle_id
+    LEFT JOIN ${DatabaseHelper.lotsTable} l
+      ON l.id = m.historical_lot_id
+    WHERE m.id = ?
+      AND m.user_id = ?
+    LIMIT 1
+    ''',
+      [
+        localMilkingId,
+        userId,
+      ],
+    );
+
+    if (rows.isEmpty) {
+      return false;
+    }
+
+    final Map<String, dynamic> row = rows.first;
+
+    final String? uuid = row['uuid']?.toString();
+
+    // Los registros antiguos sin UUID no se suben automáticamente,
+    // para evitar duplicarlos en Laravel.
+    if (uuid == null || uuid.trim().isEmpty) {
+      return false;
+    }
+
+    final int? cattleServerId = (row['cattle_server_id'] as num?)?.toInt();
+
+    final int? lotServerId = (row['lot_server_id'] as num?)?.toInt();
+
+    // Primero deben estar sincronizados el animal y su lote.
+    if (cattleServerId == null || lotServerId == null) {
+      return false;
+    }
+
+    final Map<String, dynamic> body = {
+      'uuid': uuid,
+      'ganado_id': cattleServerId,
+      'lote_historico_id': lotServerId,
+      'fecha': row['date'].toString(),
+      'litros': (row['liters'] as num).toDouble(),
+    };
+
+    final String? shift = row['shift']?.toString();
+
+    if (shift != null && shift.trim().isNotEmpty) {
+      body['turno'] = shift;
+    }
+
+    final String observations = row['observations']?.toString() ?? '';
+
+    if (observations.trim().isNotEmpty) {
+      body['observaciones'] = observations;
+    }
+
+    try {
+      final response = await ApiClient.instance.post(
+        '/ordenios',
+        body: body,
+      );
+
+      // 201 = creado.
+      // 200 = UUID ya existía y Laravel devolvió el mismo registro.
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final dynamic decoded = jsonDecode(
+          response.body,
+        );
+
+        if (decoded is Map<String, dynamic>) {
+          final dynamic apiData = decoded['data'];
+
+          if (apiData is Map<String, dynamic>) {
+            final int? serverId = int.tryParse(
+              apiData['id']?.toString() ?? '',
+            );
+
+            final int? serverMilkingNumber = int.tryParse(
+              apiData['numero_ordenio']?.toString() ?? '',
+            );
+
+            final Map<String, dynamic> updateData = {
+              'server_id': serverId,
+              'sync_status': 'synced',
+              'updated_at': DateTime.now().toIso8601String(),
+              'last_sync_error': null,
+            };
+
+            // Laravel es quien tiene el número definitivo.
+            if (serverMilkingNumber != null) {
+              updateData['milking_number'] = serverMilkingNumber;
+            }
+
+            await database.update(
+              DatabaseHelper.milkingRecordsTable,
+              updateData,
+              where: 'id = ? AND user_id = ?',
+              whereArgs: [
+                localMilkingId,
+                userId,
+              ],
+            );
+
+            return true;
+          }
+        }
+
+        return false;
+      }
+
+      // Errores de validación/permisos:
+      // guardamos el error para poder identificarlo.
+      if (response.statusCode == 403 ||
+          response.statusCode == 404 ||
+          response.statusCode == 422) {
+        await database.update(
+          DatabaseHelper.milkingRecordsTable,
+          {
+            'sync_status': 'error',
+            'updated_at': DateTime.now().toIso8601String(),
+            'last_sync_error': _extractApiError(
+              response.body,
+              'No fue posible sincronizar el ordeño.',
+            ),
+          },
+          where: 'id = ? AND user_id = ?',
+          whereArgs: [
+            localMilkingId,
+            userId,
+          ],
+        );
+      }
+
+      // 401, 500, etc.:
+      // conservamos el registro local.
+      return false;
+    } catch (_) {
+      // Sin Internet, timeout o servidor apagado.
+      // El registro permanece pending.
+      return false;
+    }
+  }
+
+  Future<void> syncPendingMilkings() async {
+    final database = await _databaseHelper.database;
+    final int userId = await _requireUserId();
+
+    final List<Map<String, dynamic>> pending = await database.query(
+      DatabaseHelper.milkingRecordsTable,
+      columns: [
+        'id',
+      ],
+      where: '''
+      user_id = ?
+      AND sync_status = ?
+      AND uuid IS NOT NULL
+    ''',
+      whereArgs: [
+        userId,
+        'pending',
+      ],
+      orderBy: 'date ASC, milking_number ASC, id ASC',
+    );
+
+    for (final Map<String, dynamic> row in pending) {
+      final int? id = (row['id'] as num?)?.toInt();
+
+      if (id == null) {
+        continue;
+      }
+
+      await _syncMilkingByLocalId(
+        id,
+      );
+    }
+  }
+
+  Future<void> syncMilkings() async {
+    try {
+      await syncPendingMilkings();
+    } catch (_) {
+      // Si no hay conexión o Laravel está apagado,
+      // la aplicación continúa trabajando con SQLite.
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _getApiMilkings() async {
-    final response = await ApiClient.instance.get(
-      '/ordenios',
+    final database = await _databaseHelper.database;
+    final int userId = await _requireUserId();
+    // Intenta enviar los ordeños pendientes.
+    // Si no hay servidor, continúa usando SQLite.
+    await syncMilkings();
+
+    final List<Map<String, dynamic>> rows = await database.query(
+      DatabaseHelper.milkingRecordsTable,
+      where: 'user_id = ?',
+      whereArgs: [userId],
+      orderBy: 'date DESC, milking_number DESC',
     );
 
-    if (response.statusCode == 401) {
-      throw Exception(
-        'La sesión ha expirado. Inicia sesión nuevamente.',
-      );
-    }
+    // Conservamos los nombres que ya utilizan los métodos
+    // existentes del repositorio para no tener que reescribir
+    // todos los cálculos de producción.
+    return rows.map((row) {
+      return <String, dynamic>{
+        'id': row['id'],
+        'uuid': row['uuid'],
 
-    if (response.statusCode != 200) {
-      throw Exception(
-        'No fue posible cargar los ordeños '
-        '(${response.statusCode}).',
-      );
-    }
+        // IMPORTANTE:
+        // estos son IDs LOCALES porque los cálculos de Flutter
+        // trabajan contra SQLite.
+        'ganado_id': row['cattle_id'],
+        'lote_historico_id': row['historical_lot_id'],
 
-    final dynamic decoded = jsonDecode(
-      response.body,
-    );
+        'fecha': row['date'],
+        'numero_ordenio': row['milking_number'],
+        'turno': row['shift'],
+        'litros': row['liters'],
+        'observaciones': row['observations'],
+        'created_at': row['created_at'],
 
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception(
-        'El servidor devolvió una respuesta inválida.',
-      );
-    }
-
-    final dynamic data = decoded['data'];
-
-    print('========== API ORDEÑOS ==========');
-    print('Status: ${response.statusCode}');
-    print('Data: $data');
-    print('=================================');
-
-    if (data is! List) {
-      throw Exception(
-        'El servidor no devolvió la lista de ordeños.',
-      );
-    }
-
-    return data.whereType<Map<String, dynamic>>().toList();
+        'server_id': row['server_id'],
+        'sync_status': row['sync_status'],
+        'updated_at': row['updated_at'],
+        'last_sync_error': row['last_sync_error'],
+      };
+    }).toList();
   }
 
   Future<List<MilkingRecord>> getRecentMilkingsByCattle({
@@ -78,6 +304,7 @@ class MilkingRepository {
     final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final List<MilkingRecord> result = [];
+    final int userId = await _requireUserId();
 
     for (final Map<String, dynamic> milking in milkings) {
       final int? milkingCattleId = _toInt(
@@ -89,8 +316,24 @@ class MilkingRepository {
       }
 
       result.add(
-        MilkingRecord.fromApi(
-          milking,
+        MilkingRecord.fromMap(
+          {
+            'id': milking['id'],
+            'uuid': milking['uuid'],
+            'server_id': milking['server_id'],
+            'user_id': userId,
+            'cattle_id': milking['ganado_id'],
+            'historical_lot_id': milking['lote_historico_id'],
+            'date': milking['fecha'],
+            'milking_number': milking['numero_ordenio'],
+            'shift': milking['turno'],
+            'liters': milking['litros'],
+            'observations': milking['observaciones'],
+            'created_at': milking['created_at'],
+            'sync_status': milking['sync_status'] ?? 'pending',
+            'updated_at': milking['updated_at'],
+            'last_sync_error': milking['last_sync_error'],
+          },
         ),
       );
     }
@@ -132,130 +375,140 @@ class MilkingRepository {
   }) async {
     if (liters <= 0) {
       throw Exception(
-        'La cantidad de leche debe ser mayor a 0.',
+        'La cantidad de litros debe ser mayor a 0.',
       );
     }
 
-    final String? cleanShift = shift?.trim();
-    final String? cleanObservations = observations?.trim();
+    final database = await _databaseHelper.database;
+    final int userId = await _requireUserId();
 
-    final response = await ApiClient.instance.post(
-      '/ordenios',
-      body: {
-        'ganado_id': cattleId,
-        'fecha': _formatDate(date),
-        'litros': liters,
-        if (cleanShift != null && cleanShift.isNotEmpty) 'turno': cleanShift,
-        if (cleanObservations != null && cleanObservations.isNotEmpty)
-          'observaciones': cleanObservations,
+    final String formattedDate = _formatDate(
+      date,
+    );
+
+    final int localId = await database.transaction<int>(
+      (transaction) async {
+        // -------------------------------------------------------
+        // BUSCAR EL ANIMAL LOCAL
+        // -------------------------------------------------------
+
+        final List<Map<String, dynamic>> cattleRows = await transaction.query(
+          DatabaseHelper.cattleTable,
+          columns: [
+            'id',
+            'lot_id',
+            'sex',
+            'status',
+          ],
+          where: 'id = ? AND user_id = ?',
+          whereArgs: [
+            cattleId,
+            userId,
+          ],
+          limit: 1,
+        );
+
+        if (cattleRows.isEmpty) {
+          throw Exception(
+            'No se encontró el animal seleccionado.',
+          );
+        }
+
+        final Map<String, dynamic> animal = cattleRows.first;
+
+        final int? historicalLotId = (animal['lot_id'] as num?)?.toInt();
+
+        if (historicalLotId == null) {
+          throw Exception(
+            'El animal no tiene un lote asignado.',
+          );
+        }
+
+        if (animal['status']?.toString() != 'Activo') {
+          throw Exception(
+            'Solo puedes registrar ordeños de ganado activo.',
+          );
+        }
+
+        if (animal['sex']?.toString() != 'Hembra') {
+          throw Exception(
+            'Solo puedes registrar ordeños de hembras.',
+          );
+        }
+
+        // -------------------------------------------------------
+        // NÚMERO LOCAL DEL ORDEÑO
+        // -------------------------------------------------------
+
+        final List<Map<String, dynamic>> result = await transaction.rawQuery(
+          '''
+        SELECT MAX(milking_number) AS max_number
+        FROM ${DatabaseHelper.milkingRecordsTable}
+        WHERE user_id = ?
+          AND cattle_id = ?
+          AND date = ?
+        ''',
+          [
+            userId,
+            cattleId,
+            formattedDate,
+          ],
+        );
+
+        final int currentMax =
+            (result.first['max_number'] as num?)?.toInt() ?? 0;
+
+        final int milkingNumber = currentMax + 1;
+
+        if (milkingNumber > 20) {
+          throw Exception(
+            'No se pueden registrar más de 20 ordeños '
+            'para este animal en la misma fecha.',
+          );
+        }
+
+        final DateTime now = DateTime.now();
+
+        final String uuid = _generateUuid();
+
+        // -------------------------------------------------------
+        // GUARDAR PRIMERO EN SQLITE
+        // -------------------------------------------------------
+
+        return transaction.insert(
+          DatabaseHelper.milkingRecordsTable,
+          {
+            'uuid': uuid,
+            'user_id': userId,
+            'cattle_id': cattleId,
+            'historical_lot_id': historicalLotId,
+            'date': formattedDate,
+            'milking_number': milkingNumber,
+            'shift': shift,
+            'liters': liters,
+            'observations': observations?.trim() ?? '',
+            'created_at': now.toIso8601String(),
+            'server_id': null,
+            'sync_status': 'pending',
+            'updated_at': now.toIso8601String(),
+            'last_sync_error': null,
+          },
+        );
       },
     );
 
-    if (response.statusCode == 401) {
-      throw Exception(
-        'La sesión ha expirado. Inicia sesión nuevamente.',
-      );
-    }
+    // ---------------------------------------------------------
+    // INTENTAR SINCRONIZAR.
+    //
+    // Si no hay conexión, NO eliminamos el registro.
+    // Ya quedó guardado correctamente en SQLite.
+    // ---------------------------------------------------------
 
-    dynamic decoded;
-
-    try {
-      decoded = jsonDecode(
-        response.body,
-      );
-    } catch (_) {
-      decoded = null;
-    }
-
-    if (response.statusCode == 201) {
-      if (decoded is Map<String, dynamic>) {
-        final dynamic data = decoded['data'];
-
-        if (data is Map<String, dynamic>) {
-          final int? id = _toInt(
-            data['id'],
-          );
-
-          if (id != null) {
-            return id;
-          }
-        }
-
-        // Algunos controladores pueden devolver directamente
-        // los datos del registro.
-        final int? id = _toInt(
-          decoded['id'],
-        );
-
-        if (id != null) {
-          return id;
-        }
-      }
-
-      // El registro sí fue creado aunque el servidor
-      // no haya devuelto el ID en el formato esperado.
-      return 0;
-    }
-
-    if (response.statusCode == 422) {
-      String message = 'Los datos de la ordeña no son válidos.';
-
-      if (decoded is Map<String, dynamic>) {
-        final dynamic serverMessage = decoded['message'];
-
-        if (serverMessage != null &&
-            serverMessage.toString().trim().isNotEmpty) {
-          message = serverMessage.toString();
-        }
-
-        final dynamic errors = decoded['errors'];
-
-        if (errors is Map) {
-          for (final dynamic value in errors.values) {
-            if (value is List && value.isNotEmpty) {
-              message = value.first.toString();
-              break;
-            }
-
-            if (value != null) {
-              message = value.toString();
-              break;
-            }
-          }
-        }
-      }
-
-      throw Exception(
-        message,
-      );
-    }
-
-    if (response.statusCode == 403) {
-      throw Exception(
-        'No tienes permiso para registrar esta ordeña.',
-      );
-    }
-
-    if (response.statusCode == 404) {
-      throw Exception(
-        'No se encontró el animal seleccionado.',
-      );
-    }
-
-    String message =
-        'No fue posible registrar la ordeña (${response.statusCode}).';
-
-    if (decoded is Map<String, dynamic>) {
-      final dynamic serverMessage = decoded['message'];
-
-      if (serverMessage != null && serverMessage.toString().trim().isNotEmpty) {
-        message = serverMessage.toString();
-      }
-    }
-
-    throw Exception(
-      message,
+    await _syncMilkingByLocalId(
+      localId,
     );
+
+    return localId;
   }
 
   // =========================================================
@@ -268,6 +521,7 @@ class MilkingRepository {
     final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final List<MilkingRecord> result = [];
+    final int userId = await _requireUserId();
 
     for (final Map<String, dynamic> milking in milkings) {
       final DateTime? milkingDate = DateTime.tryParse(
@@ -287,8 +541,24 @@ class MilkingRepository {
       }
 
       result.add(
-        MilkingRecord.fromApi(
-          milking,
+        MilkingRecord.fromMap(
+          {
+            'id': milking['id'],
+            'uuid': milking['uuid'],
+            'server_id': milking['server_id'],
+            'user_id': userId,
+            'cattle_id': milking['ganado_id'],
+            'historical_lot_id': milking['lote_historico_id'],
+            'date': milking['fecha'],
+            'milking_number': milking['numero_ordenio'],
+            'shift': milking['turno'],
+            'liters': milking['litros'],
+            'observations': milking['observaciones'],
+            'created_at': milking['created_at'],
+            'sync_status': milking['sync_status'] ?? 'pending',
+            'updated_at': milking['updated_at'],
+            'last_sync_error': milking['last_sync_error'],
+          },
         ),
       );
     }
@@ -321,6 +591,7 @@ class MilkingRepository {
     final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final List<MilkingRecord> result = [];
+    final int userId = await _requireUserId();
 
     for (final Map<String, dynamic> milking in milkings) {
       final int? milkingCattleId = _toInt(
@@ -348,8 +619,24 @@ class MilkingRepository {
       }
 
       result.add(
-        MilkingRecord.fromApi(
-          milking,
+        MilkingRecord.fromMap(
+          {
+            'id': milking['id'],
+            'uuid': milking['uuid'],
+            'server_id': milking['server_id'],
+            'user_id': userId,
+            'cattle_id': milking['ganado_id'],
+            'historical_lot_id': milking['lote_historico_id'],
+            'date': milking['fecha'],
+            'milking_number': milking['numero_ordenio'],
+            'shift': milking['turno'],
+            'liters': milking['litros'],
+            'observations': milking['observaciones'],
+            'created_at': milking['created_at'],
+            'sync_status': milking['sync_status'] ?? 'pending',
+            'updated_at': milking['updated_at'],
+            'last_sync_error': milking['last_sync_error'],
+          },
         ),
       );
     }
@@ -496,41 +783,29 @@ class MilkingRepository {
   Future<double> getMonthlyProduction(
     DateTime month,
   ) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final DateTime? date = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
 
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
+      if (date == null) {
+        continue;
+      }
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND date >= ?
-        AND date < ?
-      ''',
-      [
-        userId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+      if (date.year != month.year || date.month != month.month) {
+        continue;
+      }
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   // =========================================================
@@ -541,43 +816,37 @@ class MilkingRepository {
     required int cattleId,
     required DateTime month,
   }) async {
-    final database = await _databaseHelper.database;
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
-    final int userId = _requireUserId();
+    double total = 0.0;
 
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? milkingCattleId = _toInt(
+        milking['ganado_id'],
+      );
 
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
+      if (milkingCattleId != cattleId) {
+        continue;
+      }
 
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-      SELECT COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-      FROM ${DatabaseHelper.milkingRecordsTable}
-      WHERE user_id = ?
-        AND cattle_id = ?
-        AND date >= ?
-        AND date < ?
-      ''',
-      [
-        userId,
-        cattleId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+      final DateTime? date = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
 
-    return (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      if (date == null) {
+        continue;
+      }
+
+      if (date.year != month.year || date.month != month.month) {
+        continue;
+      }
+
+      total += _toDouble(
+        milking['litros'],
+      );
+    }
+
+    return total;
   }
 
   // =========================================================
@@ -623,57 +892,36 @@ class MilkingRepository {
     required int cattleId,
     required DateTime month,
   }) async {
-    final database = await _databaseHelper.database;
-
-    final int userId = _requireUserId();
-
-    final DateTime firstDay = DateTime(
-      month.year,
-      month.month,
-      1,
-    );
-
-    final DateTime nextMonth = DateTime(
-      month.year,
-      month.month + 1,
-      1,
-    );
-
-    final List<Map<String, dynamic>> result = await database.rawQuery(
-      '''
-    SELECT
-      CAST(
-        strftime('%d', date)
-        AS INTEGER
-      ) AS day,
-      COALESCE(
-        SUM(liters),
-        0
-      ) AS total
-    FROM ${DatabaseHelper.milkingRecordsTable}
-    WHERE user_id = ?
-      AND cattle_id = ?
-      AND date >= ?
-      AND date < ?
-    GROUP BY date
-    ORDER BY date
-    ''',
-      [
-        userId,
-        cattleId,
-        _formatDate(firstDay),
-        _formatDate(nextMonth),
-      ],
-    );
+    final List<Map<String, dynamic>> milkings = await _getApiMilkings();
 
     final Map<int, double> productionByDay = {};
 
-    for (final Map<String, dynamic> row in result) {
-      final int day = (row['day'] as num).toInt();
+    for (final Map<String, dynamic> milking in milkings) {
+      final int? milkingCattleId = _toInt(
+        milking['ganado_id'],
+      );
 
-      final double total = (row['total'] as num?)?.toDouble() ?? 0.0;
+      if (milkingCattleId != cattleId) {
+        continue;
+      }
 
-      productionByDay[day] = total;
+      final DateTime? date = DateTime.tryParse(
+        milking['fecha']?.toString() ?? '',
+      );
+
+      if (date == null) {
+        continue;
+      }
+
+      if (date.year != month.year || date.month != month.month) {
+        continue;
+      }
+
+      final double liters = _toDouble(
+        milking['litros'],
+      );
+
+      productionByDay[date.day] = (productionByDay[date.day] ?? 0.0) + liters;
     }
 
     return productionByDay;
@@ -850,5 +1098,45 @@ class MilkingRepository {
           value.toString(),
         ) ??
         0.0;
+  }
+
+  String _extractApiError(
+    String responseBody,
+    String fallback,
+  ) {
+    try {
+      final dynamic decoded = jsonDecode(
+        responseBody,
+      );
+
+      if (decoded is! Map<String, dynamic>) {
+        return fallback;
+      }
+
+      final dynamic errors = decoded['errors'];
+
+      if (errors is Map) {
+        for (final dynamic value in errors.values) {
+          if (value is List && value.isNotEmpty) {
+            return value.first.toString();
+          }
+
+          if (value != null) {
+            return value.toString();
+          }
+        }
+      }
+
+      final dynamic message = decoded['message'];
+
+      if (message != null && message.toString().trim().isNotEmpty) {
+        return message.toString();
+      }
+    } catch (_) {
+      // Si Laravel no devuelve JSON válido,
+      // se utiliza el mensaje predeterminado.
+    }
+
+    return fallback;
   }
 }
