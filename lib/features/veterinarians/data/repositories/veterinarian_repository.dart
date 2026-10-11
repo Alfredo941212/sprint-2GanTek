@@ -1,9 +1,87 @@
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
 
+import '../../../../core/database/database_helper.dart';
 import '../../../../core/network/api_client.dart';
 import '../models/veterinarian.dart';
 
 class VeterinarianRepository {
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+
+  Future<void> _saveApiVeterinariansLocally(
+    List<Map<String, dynamic>> apiVeterinarians,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    for (final Map<String, dynamic> apiVeterinarian in apiVeterinarians) {
+      final Veterinarian serverVeterinarian =
+          Veterinarian.fromApi(apiVeterinarian);
+
+      final int? serverId = serverVeterinarian.serverId;
+
+      if (serverId == null) {
+        continue;
+      }
+
+      final List<Map<String, dynamic>> existing = await db.query(
+        DatabaseHelper.veterinariansTable,
+        columns: ['id'],
+        where: 'server_id = ?',
+        whereArgs: [serverId],
+        limit: 1,
+      );
+
+      final int? localId =
+          existing.isEmpty ? null : (existing.first['id'] as num?)?.toInt();
+
+      final Veterinarian veterinarian = serverVeterinarian.copyWith(
+        id: localId,
+      );
+
+      final Map<String, dynamic> data = veterinarian.toMap();
+      data.remove('id');
+      // SQLite no permite NULL en observations.
+      data['observations'] ??= '';
+      // SQLite exige created_at.
+      data['created_at'] ??= DateTime.now().toIso8601String();
+
+      if (localId == null) {
+        await db.insert(
+          DatabaseHelper.veterinariansTable,
+          data,
+          conflictAlgorithm: ConflictAlgorithm.abort,
+        );
+      } else {
+        await db.update(
+          DatabaseHelper.veterinariansTable,
+          data,
+          where: 'id = ?',
+          whereArgs: [localId],
+        );
+      }
+    }
+  }
+
+  Future<int?> _getVeterinarianServerId(
+    int localVeterinarianId,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.veterinariansTable,
+      columns: ['server_id'],
+      where: 'id = ?',
+      whereArgs: [localVeterinarianId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    return (rows.first['server_id'] as num?)?.toInt();
+  }
+
   // =========================================================
   // REGISTRAR
   // =========================================================
@@ -79,13 +157,33 @@ class VeterinarianRepository {
 
     final Veterinarian created = Veterinarian.fromApi(data);
 
-    if (created.id == null) {
+    if (created.serverId == null) {
       throw Exception(
         'El servidor no devolvió el ID del veterinario.',
       );
     }
 
-    return created.id!;
+    await _saveApiVeterinariansLocally([
+      data,
+    ]);
+
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> localRows = await db.query(
+      DatabaseHelper.veterinariansTable,
+      columns: ['id'],
+      where: 'server_id = ?',
+      whereArgs: [created.serverId],
+      limit: 1,
+    );
+
+    if (localRows.isEmpty) {
+      throw Exception(
+        'No se pudo guardar localmente el veterinario.',
+      );
+    }
+
+    return (localRows.first['id'] as num).toInt();
   }
 
   // =========================================================
@@ -93,55 +191,64 @@ class VeterinarianRepository {
   // =========================================================
 
   Future<List<Veterinarian>> getAllVeterinarians() async {
-    final response = await ApiClient.instance.get(
-      '/veterinarios',
+    final Database db = await _databaseHelper.database;
+
+    try {
+      final response = await ApiClient.instance.get(
+        '/veterinarios',
+      );
+
+      if (response.statusCode == 401) {
+        throw Exception(
+          'Tu sesión ha expirado. Inicia sesión nuevamente.',
+        );
+      }
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          'No se pudieron obtener los veterinarios. '
+          'Código ${response.statusCode}.',
+        );
+      }
+
+      final dynamic decoded = jsonDecode(
+        response.body,
+      );
+
+      if (decoded is! Map<String, dynamic>) {
+        throw Exception(
+          'La respuesta de veterinarios no es válida.',
+        );
+      }
+
+      final dynamic data = decoded['data'];
+
+      if (data is! List) {
+        throw Exception(
+          'La lista de veterinarios no es válida.',
+        );
+      }
+
+      final List<Map<String, dynamic>> apiVeterinarians =
+          data.whereType<Map<String, dynamic>>().toList();
+
+      await _saveApiVeterinariansLocally(
+        apiVeterinarians,
+      );
+    } catch (_) {
+      // Si Laravel no está disponible, usamos la copia local.
+    }
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.veterinariansTable,
+      orderBy: 'name COLLATE NOCASE ASC',
     );
 
-    if (response.statusCode == 401) {
-      throw Exception(
-        'Tu sesión ha expirado. Inicia sesión nuevamente.',
-      );
-    }
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'No se pudieron obtener los veterinarios. '
-        'Código ${response.statusCode}.',
-      );
-    }
-
-    final dynamic decoded = jsonDecode(
-      response.body,
-    );
-
-    if (decoded is! Map<String, dynamic>) {
-      throw Exception(
-        'La respuesta de veterinarios no es válida.',
-      );
-    }
-
-    final dynamic data = decoded['data'];
-
-    if (data is! List) {
-      throw Exception(
-        'La lista de veterinarios no es válida.',
-      );
-    }
-
-    final List<Veterinarian> veterinarians = data
-        .whereType<Map<String, dynamic>>()
+    return rows
         .map(
-          (Map<String, dynamic> item) => Veterinarian.fromApi(item),
+          (Map<String, dynamic> row) => Veterinarian.fromMap(row),
         )
         .toList();
-
-    veterinarians.sort(
-      (Veterinarian a, Veterinarian b) => a.name.toLowerCase().compareTo(
-            b.name.toLowerCase(),
-          ),
-    );
-
-    return veterinarians;
   }
 
   // =========================================================
@@ -243,9 +350,9 @@ class VeterinarianRepository {
   Future<int> updateVeterinarian(
     Veterinarian veterinarian,
   ) async {
-    final int? veterinarianId = veterinarian.id;
+    final int? localVeterinarianId = veterinarian.id;
 
-    if (veterinarianId == null) {
+    if (localVeterinarianId == null) {
       throw Exception(
         'No se puede actualizar un veterinario sin ID.',
       );
@@ -263,8 +370,17 @@ class VeterinarianRepository {
       );
     }
 
+    final int? serverVeterinarianId =
+        await _getVeterinarianServerId(localVeterinarianId);
+
+    if (serverVeterinarianId == null) {
+      throw StateError(
+        'El veterinario todavía no está sincronizado con el servidor.',
+      );
+    }
+
     final response = await ApiClient.instance.put(
-      '/veterinarios/$veterinarianId',
+      '/veterinarios/$serverVeterinarianId',
       body: veterinarian.toApi(),
     );
 
@@ -302,6 +418,23 @@ class VeterinarianRepository {
       );
     }
 
+    final Database db = await _databaseHelper.database;
+
+    final Map<String, dynamic> localData = veterinarian.toMap();
+
+    localData.remove('id');
+    localData.remove('server_id');
+
+    // SQLite no permite NULL en observations.
+    localData['observations'] ??= '';
+
+    await db.update(
+      DatabaseHelper.veterinariansTable,
+      localData,
+      where: 'id = ?',
+      whereArgs: [localVeterinarianId],
+    );
+
     return 1;
   }
 
@@ -312,8 +445,18 @@ class VeterinarianRepository {
   Future<int> deleteVeterinarian(
     int veterinarianId,
   ) async {
+    // veterinarianId es el ID local de SQLite.
+    final int? serverVeterinarianId =
+        await _getVeterinarianServerId(veterinarianId);
+
+    if (serverVeterinarianId == null) {
+      throw StateError(
+        'El veterinario todavía no está sincronizado con el servidor.',
+      );
+    }
+
     final response = await ApiClient.instance.delete(
-      '/veterinarios/$veterinarianId',
+      '/veterinarios/$serverVeterinarianId',
     );
 
     if (response.statusCode == 401) {
@@ -349,6 +492,17 @@ class VeterinarianRepository {
         'Código ${response.statusCode}.',
       );
     }
+
+    final Database db = await _databaseHelper.database;
+
+    await db.update(
+      DatabaseHelper.veterinariansTable,
+      {
+        'status': 'Inactivo',
+      },
+      where: 'id = ?',
+      whereArgs: [veterinarianId],
+    );
 
     return 1;
   }

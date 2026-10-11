@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
 
+import '../../../../core/database/database_helper.dart';
 import '../../../../core/network/api_client.dart';
 import '../models/vaccine_record.dart';
 
@@ -9,13 +11,110 @@ class VaccineRepository {
   }) : _apiClient = apiClient ?? ApiClient.instance;
 
   final ApiClient _apiClient;
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
+
+  Future<int?> _getCattleServerId(
+    int localCattleId,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.cattleTable,
+      columns: ['server_id'],
+      where: 'id = ?',
+      whereArgs: [localCattleId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    return (rows.first['server_id'] as num?)?.toInt();
+  }
+
+  Future<int?> _getVaccineServerId(
+    int localVaccineId,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.vaccineCatalogTable,
+      columns: ['server_id'],
+      where: 'id = ?',
+      whereArgs: [localVaccineId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    return (rows.first['server_id'] as num?)?.toInt();
+  }
+
+  Future<int?> _getVeterinarianServerId(
+    int localVeterinarianId,
+  ) async {
+    final Database db = await _databaseHelper.database;
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      DatabaseHelper.veterinariansTable,
+      columns: ['server_id'],
+      where: 'id = ?',
+      whereArgs: [localVeterinarianId],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    return (rows.first['server_id'] as num?)?.toInt();
+  }
 
   Future<int> insertVaccineRecord(
     VaccineRecord vaccine,
   ) async {
+    final int? cattleServerId = await _getCattleServerId(
+      vaccine.cattleId,
+    );
+
+    if (cattleServerId == null) {
+      throw StateError(
+        'El ganado seleccionado todavía no está sincronizado con el servidor.',
+      );
+    }
+
+    final int? vaccineServerId = await _getVaccineServerId(
+      vaccine.vaccineId,
+    );
+
+    if (vaccineServerId == null) {
+      throw StateError(
+        'La vacuna seleccionada todavía no está sincronizada con el servidor.',
+      );
+    }
+
+    final int? veterinarianServerId = await _getVeterinarianServerId(
+      vaccine.veterinarianId,
+    );
+
+    if (veterinarianServerId == null) {
+      throw StateError(
+        'El veterinario seleccionado todavía no está sincronizado con el servidor.',
+      );
+    }
+
+    final Map<String, dynamic> body = vaccine.toCreateApi();
+
+    body['ganado_id'] = cattleServerId;
+    body['vacuna_id'] = vaccineServerId;
+    body['veterinario_id'] = veterinarianServerId;
+
     final response = await _apiClient.post(
       '/vacunaciones',
-      body: vaccine.toCreateApi(),
+      body: body,
     );
 
     if (response.statusCode == 401) {

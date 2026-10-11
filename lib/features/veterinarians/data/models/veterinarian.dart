@@ -1,6 +1,7 @@
 class Veterinarian {
   const Veterinarian({
     this.id,
+    this.serverId,
     required this.name,
     this.professionalLicense,
     this.phone,
@@ -12,6 +13,7 @@ class Veterinarian {
   });
 
   final int? id;
+  final int? serverId;
   final String name;
   final String? professionalLicense;
   final String? phone;
@@ -27,6 +29,7 @@ class Veterinarian {
 
   Map<String, dynamic> toMap() {
     final Map<String, dynamic> map = {
+      'server_id': serverId,
       'name': name.trim(),
       'professional_license': _cleanNullable(
         professionalLicense,
@@ -59,6 +62,7 @@ class Veterinarian {
   ) {
     return Veterinarian(
       id: (map['id'] as num?)?.toInt(),
+      serverId: (map['server_id'] as num?)?.toInt(),
       name: map['name']?.toString() ?? '',
       professionalLicense: map['professional_license']?.toString(),
       phone: map['phone']?.toString(),
@@ -75,10 +79,12 @@ class Veterinarian {
   // =========================================================
 
   factory Veterinarian.fromApi(
-    Map<String, dynamic> map,
-  ) {
+    Map<String, dynamic> map, {
+    int? localId,
+  }) {
     return Veterinarian(
-      id: (map['id'] as num?)?.toInt(),
+      id: localId,
+      serverId: (map['id'] as num?)?.toInt(),
       name: map['nombre']?.toString() ?? '',
       professionalLicense: map['cedula_profesional']?.toString(),
       phone: map['telefono']?.toString(),
@@ -116,6 +122,7 @@ class Veterinarian {
 
   Veterinarian copyWith({
     int? id,
+    int? serverId,
     String? name,
     String? professionalLicense,
     String? phone,
@@ -127,6 +134,7 @@ class Veterinarian {
   }) {
     return Veterinarian(
       id: id ?? this.id,
+      serverId: serverId ?? this.serverId,
       name: name ?? this.name,
       professionalLicense: professionalLicense ?? this.professionalLicense,
       phone: phone ?? this.phone,
