@@ -92,6 +92,29 @@ class ApiClient {
         .timeout(ApiConfig.timeout);
   }
 
+  Future<http.Response> patch(
+    String endpoint, {
+    String? token,
+    Map<String, dynamic>? body,
+  }) async {
+    final Uri uri = Uri.parse(
+      '${ApiConfig.baseUrl}$endpoint',
+    );
+
+    final String? resolvedToken =
+        token ?? await SessionManager.instance.getStoredApiToken();
+
+    return http
+        .patch(
+          uri,
+          headers: _headers(resolvedToken),
+          body: jsonEncode(
+            body ?? {},
+          ),
+        )
+        .timeout(ApiConfig.timeout);
+  }
+
   Future<http.Response> delete(
     String endpoint, {
     String? token,
