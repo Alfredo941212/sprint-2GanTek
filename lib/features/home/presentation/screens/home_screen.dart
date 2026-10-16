@@ -25,6 +25,9 @@ import '../../../milk_production/presentation/screens/production_alerts_screen.d
 import '../../../vaccines/presentation/screens/health_screen.dart';
 import '../../../vaccines/presentation/screens/vaccine_alerts_screen.dart';
 
+import '../../../ia/presentation/screens/ia_analysis_screen.dart';
+import '../../../agenda/presentation/screens/agenda_screen.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
@@ -1017,6 +1020,47 @@ class _HomeScreenState extends State<HomeScreen> {
               const HealthScreen(),
             );
           },
+        ),
+/**Agenda */
+        const SizedBox(
+          height: 10,
+        ),
+
+        _ModuleTile(
+          icon: const Icon(
+            Icons.event_note_outlined,
+          ),
+          title: 'Agenda',
+          subtitle: 'Consultar y administrar tareas',
+          onTap: () {
+            _open(
+              context,
+              const AgendaScreen(),
+            );
+          },
+        ),
+
+/***Analisis IA */
+        const SizedBox(
+          height: 10,
+        ),
+
+        _ModuleTile(
+          icon: const Icon(
+            Icons.psychology_alt_outlined,
+          ),
+          title: 'Análisis IA',
+          subtitle: 'Predicción y análisis de producción',
+          onTap: () {
+            _open(
+              context,
+              const IaAnalysisScreen(),
+            );
+          },
+        ),
+
+        const SizedBox(
+          height: 10,
         ),
 
         const SizedBox(
