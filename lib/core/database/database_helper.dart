@@ -17,7 +17,7 @@ class DatabaseHelper {
 
   // Versión 8:
   // Inicio de migración de GanTek hacia producción lechera.
-  static const int databaseVersion = 13;
+  static const int databaseVersion = 14;
 
   // =========================================================
   // TABLAS
@@ -41,7 +41,11 @@ class DatabaseHelper {
 
   // Nueva tabla para producción lechera.
   static const String milkingRecordsTable = 'milking_records';
-
+// Nueva estructura de ordeña por grupos.
+static const String milkingGroupsTable = 'milking_groups';
+static const String milkingGroupCattleTable = 'milking_group_cattle';
+static const String milkingSessionsTable = 'milking_sessions';
+static const String milkingSessionCattleTable = 'milking_session_cattle';
   // =========================================================
   // OBTENER BASE DE DATOS
   // =========================================================
@@ -101,17 +105,6 @@ class DatabaseHelper {
 
     await _createCattleTable(database);
 
-    // ---------------------------------------------------------
-    // LEGACY
-    // ---------------------------------------------------------
-    //
-    // Estas dos tablas se conservan temporalmente porque
-    // todavía existen pantallas/repositorios que las utilizan.
-    //
-    // Más adelante se eliminan cuando Sales y el sistema
-    // anterior de vacunas ya no tengan dependencias.
-    // ---------------------------------------------------------
-
     await _createLegacyVaccineRecordsTable(database);
 
     // ---------------------------------------------------------
@@ -125,6 +118,14 @@ class DatabaseHelper {
     await _createVaccinationsTable(database);
 
     await _createMilkingRecordsTable(database);
+
+    await _createMilkingGroupsTable(database);
+
+    await _createMilkingGroupCattleTable(database);
+
+    await _createMilkingSessionsTable(database);
+
+    await _createMilkingSessionCattleTable(database);
   }
 
   // =========================================================
@@ -458,72 +459,243 @@ class DatabaseHelper {
   // REGISTROS DE ORDEÑO
   // =========================================================
 
+  Future<void> _createMilkingGroupsTable(
+    DatabaseExecutor database,
+  ) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS $milkingGroupsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        server_id INTEGER UNIQUE,
+
+        user_id INTEGER NOT NULL,
+
+        name TEXT NOT NULL,
+
+        sort_order INTEGER NOT NULL,
+
+        status TEXT NOT NULL DEFAULT 'Activo'
+          CHECK (
+            status IN (
+              'Activo',
+              'Inactivo'
+            )
+          ),
+
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (
+            sync_status IN (
+              'pending',
+              'synced',
+              'error'
+            )
+          ),
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        last_sync_error TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES $usersTable(id)
+          ON DELETE CASCADE,
+
+        UNIQUE(user_id, name),
+
+        UNIQUE(user_id, sort_order)
+      )
+    ''');
+  }
+
+
+  Future<void> _createMilkingGroupCattleTable(
+    DatabaseExecutor database,
+  ) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS $milkingGroupCattleTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        group_id INTEGER NOT NULL,
+
+        cattle_id INTEGER NOT NULL,
+
+        created_at TEXT NOT NULL,
+
+        FOREIGN KEY (group_id)
+          REFERENCES $milkingGroupsTable(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (cattle_id)
+          REFERENCES $cattleTable(id)
+          ON DELETE CASCADE,
+
+        UNIQUE(group_id, cattle_id)
+      )
+    ''');
+  }
+
+  Future<void> _createMilkingSessionsTable(
+    DatabaseExecutor database,
+  ) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS $milkingSessionsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        uuid TEXT NOT NULL UNIQUE,
+
+        server_id INTEGER UNIQUE,
+
+        user_id INTEGER NOT NULL,
+
+        group_id INTEGER NOT NULL,
+
+        date TEXT NOT NULL,
+
+        start_time TEXT,
+
+        end_time TEXT,
+
+        duration_minutes INTEGER,
+
+        cattle_count INTEGER NOT NULL DEFAULT 0
+          CHECK (cattle_count >= 0),
+
+        total_liters REAL
+          CHECK (
+            total_liters IS NULL
+            OR total_liters > 0
+          ),
+
+        status TEXT NOT NULL DEFAULT 'en_espera'
+          CHECK (
+            status IN (
+              'en_espera',
+              'en_produccion',
+              'finalizado'
+            )
+          ),
+
+        observations TEXT NOT NULL DEFAULT '',
+
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (
+            sync_status IN (
+              'pending',
+              'synced',
+              'error'
+            )
+          ),
+
+        created_at TEXT NOT NULL,
+
+        updated_at TEXT,
+
+        last_sync_error TEXT,
+
+        FOREIGN KEY (user_id)
+          REFERENCES $usersTable(id)
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (group_id)
+          REFERENCES $milkingGroupsTable(id)
+          ON DELETE RESTRICT,
+
+        UNIQUE(group_id, date)
+      )
+    ''');
+  }
+
+  Future<void> _createMilkingSessionCattleTable(
+    DatabaseExecutor database,
+    ) async {
+      await database.execute('''
+        CREATE TABLE IF NOT EXISTS $milkingSessionCattleTable (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+          session_id INTEGER NOT NULL,
+
+          cattle_id INTEGER NOT NULL,
+
+          created_at TEXT NOT NULL,
+
+          FOREIGN KEY (session_id)
+            REFERENCES $milkingSessionsTable(id)
+            ON DELETE CASCADE,
+
+          FOREIGN KEY (cattle_id)
+            REFERENCES $cattleTable(id)
+            ON DELETE RESTRICT,
+
+          UNIQUE(session_id, cattle_id)
+        )
+    ''');
+  }
+  // =========================================================
+  // MIGRACIÓN
+  // =========================================================
   Future<void> _createMilkingRecordsTable(
     DatabaseExecutor database,
   ) async {
     await database.execute('''
-    CREATE TABLE IF NOT EXISTS $milkingRecordsTable (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      uuid TEXT NOT NULL UNIQUE,
-      user_id INTEGER NOT NULL,
+      CREATE TABLE IF NOT EXISTS $milkingRecordsTable (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        uuid TEXT NOT NULL UNIQUE,
+        user_id INTEGER NOT NULL,
 
-      cattle_id INTEGER NOT NULL,
+        cattle_id INTEGER NOT NULL,
 
-      historical_lot_id INTEGER,
+        historical_lot_id INTEGER,
 
-      date TEXT NOT NULL,
+        date TEXT NOT NULL,
 
-      milking_number INTEGER NOT NULL
-        CHECK (milking_number > 0),
+        milking_number INTEGER NOT NULL
+          CHECK (milking_number > 0),
 
-      shift TEXT,
+        shift TEXT,
 
-      liters REAL NOT NULL
-        CHECK (liters > 0),
+        liters REAL NOT NULL
+          CHECK (liters > 0),
 
-      observations TEXT NOT NULL DEFAULT '',
+        observations TEXT NOT NULL DEFAULT '',
 
-      created_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
 
-      server_id INTEGER,
+        server_id INTEGER,
 
-      sync_status TEXT NOT NULL DEFAULT 'pending'
-        CHECK (
-          sync_status IN (
-            'pending',
-            'synced',
-            'error'
-          )
-        ),
+        sync_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (
+            sync_status IN (
+              'pending',
+              'synced',
+              'error'
+            )
+          ),
 
-      updated_at TEXT,
+        updated_at TEXT,
 
-      last_sync_error TEXT,
+        last_sync_error TEXT,
 
-      FOREIGN KEY (user_id)
-        REFERENCES $usersTable(id)
-        ON DELETE CASCADE,
+        FOREIGN KEY (user_id)
+          REFERENCES $usersTable(id)
+          ON DELETE CASCADE,
 
-      FOREIGN KEY (cattle_id)
-        REFERENCES $cattleTable(id)
-        ON DELETE CASCADE,
+        FOREIGN KEY (cattle_id)
+          REFERENCES $cattleTable(id)
+          ON DELETE CASCADE,
 
-      FOREIGN KEY (historical_lot_id)
-        REFERENCES $lotsTable(id)
-        ON DELETE RESTRICT,
+        FOREIGN KEY (historical_lot_id)
+          REFERENCES $lotsTable(id)
+          ON DELETE RESTRICT,
 
-      UNIQUE(
-        cattle_id,
-        date,
-        milking_number
+        UNIQUE(
+          cattle_id,
+          date,
+          milking_number
+        )
       )
-    )
-  ''');
+    ''');
   }
-
-  // =========================================================
-  // MIGRACIÓN
-  // =========================================================
 
   Future<void> _upgradeDatabase(
     Database database,
@@ -862,6 +1034,17 @@ class DatabaseHelper {
           ON $vaccineCatalogTable(server_id)
         ''');
         }
+
+        if (oldVersion < 14) {
+          await _createMilkingGroupsTable(transaction);
+
+          await _createMilkingGroupCattleTable(transaction);
+
+          await _createMilkingSessionsTable(transaction);
+
+          await _createMilkingSessionCattleTable(transaction);
+        }
+
       },
     );
   }
