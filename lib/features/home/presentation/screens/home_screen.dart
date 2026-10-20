@@ -11,7 +11,7 @@ import '../../../cattle/presentation/screens/register_cattle_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
 import '../../../reports/presentation/screens/reports_screen.dart';
 import '../../../vaccines/presentation/screens/register_vaccine_screen.dart';
-
+import '../../../milk_production/presentation/screens/milking_groups_screen.dart';
 import '../../data/models/dashboard_summary.dart';
 import '../../data/repositories/dashboard_repository.dart';
 
@@ -994,12 +994,14 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(
             Icons.water_drop_outlined,
           ),
-          title: 'Producción',
-          subtitle: 'Registrar y consultar producción de leche',
+          title: 'Producción de leche',
+          subtitle: 'Gestiona grupos y jornadas de ordeña',
           onTap: () {
-            _open(
+            Navigator.push(
               context,
-              const MilkingListScreen(),
+              MaterialPageRoute(
+                builder: (_) => const MilkingGroupsScreen(),
+              ),
             );
           },
         ),
