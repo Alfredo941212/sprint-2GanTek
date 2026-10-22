@@ -1,7 +1,6 @@
 import 'dart:convert';
-
-import '../../../../core/network/api_client.dart';
 import '../models/ia_analysis_model.dart';
+import '../../../../core/network/api_client.dart';
 
 class IaRepository {
   IaRepository({
@@ -10,9 +9,32 @@ class IaRepository {
 
   final ApiClient _apiClient;
 
-  Future<IaAnalysisModel> obtenerPrediccionProduccion() async {
+  Future<IaAnalysisModel> obtenerAnalisisProduccion({
+    int horizonte = 7,
+    String? fechaInicio,
+    String? fechaFin,
+  }) async {
+    final queryParams = <String, String>{
+      'horizonte': horizonte.toString(),
+    };
+
+    if (fechaInicio != null && fechaInicio.isNotEmpty) {
+      queryParams['fecha_inicio'] = fechaInicio;
+    }
+
+    if (fechaFin != null && fechaFin.isNotEmpty) {
+      queryParams['fecha_fin'] = fechaFin;
+    }
+
+    final queryString = queryParams.entries
+        .map(
+          (entry) => '${Uri.encodeQueryComponent(entry.key)}='
+              '${Uri.encodeQueryComponent(entry.value)}',
+        )
+        .join('&');
+
     final response = await _apiClient.get(
-      '/ia/prediccion-produccion',
+      '/ia/produccion-grupos?$queryString',
     );
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -24,35 +46,39 @@ class IaRepository {
         );
       }
 
-      return IaAnalysisModel.fromJson(decoded);
+      final success = decoded['success'];
+
+      if (success != true) {
+        throw Exception(
+          decoded['message']?.toString() ??
+              'No fue posible obtener el análisis de producción.',
+        );
+      }
+
+      final data = decoded['data'];
+
+      if (data is! Map<String, dynamic>) {
+        throw Exception(
+          'La respuesta no contiene datos válidos de IA.',
+        );
+      }
+
+      return IaAnalysisModel.fromJson(data);
     }
 
-    throw Exception(
-      'Error al consultar el análisis IA. '
-      'Código: ${response.statusCode}',
-    );
-  }
-
-  Future<String> agregarAAgenda(
-    int ganadoId,
-  ) async {
-    final response = await _apiClient.post(
-      '/ia/$ganadoId/agregar-agenda',
-    );
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
+    if (response.statusCode == 422) {
       final dynamic decoded = jsonDecode(response.body);
 
       if (decoded is Map<String, dynamic>) {
-        return decoded['message']?.toString() ??
-            'Operación realizada correctamente.';
+        throw Exception(
+          decoded['message']?.toString() ??
+              'No hay suficientes registros para ejecutar el análisis.',
+        );
       }
-
-      return 'Operación realizada correctamente.';
     }
 
     throw Exception(
-      'No se pudo agregar la tarea a la agenda. '
+      'Error al consultar el análisis de producción. '
       'Código: ${response.statusCode}',
     );
   }
