@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'scan_cattle_tag_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
@@ -126,6 +126,68 @@ class _CattleListScreenState extends State<CattleListScreen> {
 
     if (changed == true) {
       _loadCattle();
+    }
+  }
+
+  Future<void> _scanAndOpenCattle() async {
+    final String? scannedCode = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const ScanCattleTagScreen(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (scannedCode == null || scannedCode.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final List<Cattle> cattleList = await _repository.getActiveCattle();
+
+      Cattle? foundCattle;
+
+      for (final cattle in cattleList) {
+        if (cattle.code.trim().toLowerCase() ==
+            scannedCode.trim().toLowerCase()) {
+          foundCattle = cattle;
+          break;
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      if (foundCattle == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se encontró ganado con el arete $scannedCode.',
+            ),
+          ),
+        );
+
+        return;
+      }
+
+      await _openCattleDetail(
+        foundCattle,
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No se pudo buscar el ganado: $e',
+          ),
+        ),
+      );
     }
   }
 
@@ -345,6 +407,15 @@ class _CattleListScreenState extends State<CattleListScreen> {
         title: const Text(
           'Ganado registrado',
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Escanear arete',
+            onPressed: _scanAndOpenCattle,
+            icon: const Icon(
+              Icons.qr_code_scanner,
+            ),
+          ),
+        ],
       ),
 
       body: FutureBuilder<List<Cattle>>(
