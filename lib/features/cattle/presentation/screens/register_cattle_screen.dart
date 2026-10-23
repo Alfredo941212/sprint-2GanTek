@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'scan_cattle_tag_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
@@ -633,6 +633,25 @@ class _RegisterCattleScreenState extends State<RegisterCattleScreen> {
   // =========================================================
   // INTERFAZ
   // =========================================================
+  Future<void> _scanCattleTag() async {
+    final String? scannedCode = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const ScanCattleTagScreen(),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (scannedCode == null || scannedCode.trim().isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _codeController.text = scannedCode.trim();
+    });
+  }
 
   @override
   Widget build(
@@ -690,19 +709,38 @@ class _RegisterCattleScreenState extends State<RegisterCattleScreen> {
             // IDENTIFICACIÓN
             // =================================================
 
-            AppTextField(
-              label: 'Código o número de arete',
-              controller: _codeController,
-              icon: Icons.tag,
-              validator: (value) {
-                final String code = value?.trim() ?? '';
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    label: 'Código o número de arete',
+                    controller: _codeController,
+                    icon: Icons.tag,
+                    validator: (value) {
+                      final String code = value?.trim() ?? '';
 
-                if (code.isEmpty) {
-                  return 'Ingresa el código o arete';
-                }
+                      if (code.isEmpty) {
+                        return 'Ingresa el código o arete';
+                      }
 
-                return null;
-              },
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  height: 56,
+                  width: 56,
+                  child: IconButton.filledTonal(
+                    tooltip: 'Escanear arete',
+                    onPressed: _scanCattleTag,
+                    icon: const Icon(
+                      Icons.qr_code_scanner,
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             const SizedBox(
