@@ -37,7 +37,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   int? _selectedCattleServerId;
   int? _selectedLotServerId;
 
-  bool _isLoadingRelations = true;
+  //bool _isLoadingRelations = true;
 
   String _type = 'general';
   String _priority = 'media';
@@ -113,7 +113,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         _cattle = results[0] as List<Cattle>;
         _lots = results[1] as List<Lot>;
 
-        _isLoadingRelations = false;
+        // _isLoadingRelations = false;
       });
     } catch (error) {
       if (!mounted) {
@@ -121,7 +121,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
       }
 
       setState(() {
-        _isLoadingRelations = false;
+        // _isLoadingRelations = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -393,113 +393,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               },
             ),
             const SizedBox(height: 16),
-            if (_isLoadingRelations)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    vertical: 12,
-                  ),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else ...[
-              DropdownButtonFormField<int?>(
-                value: _selectedCattleServerId,
-                decoration: const InputDecoration(
-                  labelText: 'Ganado relacionado',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text(
-                      'Sin ganado relacionado',
-                    ),
-                  ),
-                  ..._cattle
-                      .where(
-                        (animal) => animal.serverId != null,
-                      )
-                      .map(
-                        (animal) => DropdownMenuItem<int?>(
-                          value: animal.serverId,
-                          child: Text(
-                            animal.name.trim().isEmpty
-                                ? 'Arete ${animal.code}'
-                                : '${animal.name} - ${animal.code}',
-                          ),
-                        ),
-                      ),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCattleServerId = value;
-
-                    if (value == null) {
-                      _selectedLotServerId = null;
-                      return;
-                    }
-
-                    Cattle? selectedAnimal;
-
-                    for (final animal in _cattle) {
-                      if (animal.serverId == value) {
-                        selectedAnimal = animal;
-                        break;
-                      }
-                    }
-
-                    if (selectedAnimal == null ||
-                        selectedAnimal.lotId == null) {
-                      _selectedLotServerId = null;
-                      return;
-                    }
-
-                    for (final lot in _lots) {
-                      if (lot.id == selectedAnimal.lotId) {
-                        _selectedLotServerId = lot.serverId;
-                        break;
-                      }
-                    }
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int?>(
-                value: _selectedLotServerId,
-                decoration: const InputDecoration(
-                  labelText: 'Lote relacionado',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem<int?>(
-                    value: null,
-                    child: Text(
-                      'Sin lote relacionado',
-                    ),
-                  ),
-                  ..._lots
-                      .where(
-                        (lot) => lot.serverId != null,
-                      )
-                      .map(
-                        (lot) => DropdownMenuItem<int?>(
-                          value: lot.serverId,
-                          child: Text(
-                            lot.name,
-                          ),
-                        ),
-                      ),
-                ],
-                onChanged: _selectedCattleServerId != null
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _selectedLotServerId = value;
-                        });
-                      },
-              ),
-            ],
+            /////
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _priority,

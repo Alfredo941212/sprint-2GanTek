@@ -421,6 +421,84 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
   }
 
+  Future<void> _confirmDeleteTask(TaskModel task) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text(
+            'Eliminar tarea',
+          ),
+          content: Text(
+            '¿Estás segur@ de eliminar la tarea "${task.titulo}"?\n\n'
+            'Esta acción no se puede deshacer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text(
+                'Cancelar',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text(
+                'Eliminar',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await _repository.deleteTask(
+        task.id,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      await _loadTasks();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tarea eliminada correctamente.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst(
+                  'Exception: ',
+                  '',
+                ),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -664,6 +742,24 @@ class _AgendaScreenState extends State<AgendaScreen> {
                   ),
                   label: const Text(
                     'Editar tarea',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+            if (task.estado == 'vencida' || task.estado == 'cancelada') ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    _confirmDeleteTask(task);
+                  },
+                  icon: const Icon(
+                    Icons.delete_outline,
+                  ),
+                  label: const Text(
+                    'Eliminar tarea',
                   ),
                 ),
               ),
