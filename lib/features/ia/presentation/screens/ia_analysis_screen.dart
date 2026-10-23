@@ -263,91 +263,7 @@ class _IaAnalysisScreenState extends State<IaAnalysisScreen> {
               },
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final fecha = await showDatePicker(
-                        context: context,
-                        initialDate: _fechaInicio ?? DateTime.now(),
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-
-                      if (fecha != null) {
-                        setState(() {
-                          _fechaInicio = fecha;
-
-                          if (_fechaFin != null && _fechaFin!.isBefore(fecha)) {
-                            _fechaFin = null;
-                          }
-                        });
-                      }
-                    },
-                    icon: const Icon(
-                      Icons.calendar_month,
-                    ),
-                    label: Text(
-                      _fechaInicio == null
-                          ? 'Fecha inicio'
-                          : _formatDisplayDate(
-                              _fechaInicio!,
-                            ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final fecha = await showDatePicker(
-                        context: context,
-                        initialDate:
-                            _fechaFin ?? _fechaInicio ?? DateTime.now(),
-                        firstDate: _fechaInicio ?? DateTime(2020),
-                        lastDate: DateTime.now(),
-                      );
-
-                      if (fecha != null) {
-                        setState(() {
-                          _fechaFin = fecha;
-                        });
-                      }
-                    },
-                    icon: const Icon(
-                      Icons.event,
-                    ),
-                    label: Text(
-                      _fechaFin == null
-                          ? 'Fecha fin'
-                          : _formatDisplayDate(
-                              _fechaFin!,
-                            ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: 12),
-            if (_fechaInicio != null || _fechaFin != null)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _fechaInicio = null;
-                      _fechaFin = null;
-                    });
-                  },
-                  icon: const Icon(
-                    Icons.clear,
-                  ),
-                  label: const Text(
-                    'Limpiar fechas',
-                  ),
-                ),
-              ),
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
@@ -1730,21 +1646,5 @@ class _IaAnalysisScreenState extends State<IaAnalysisScreen> {
         );
 
     return '$year-$month-$day';
-  }
-
-  String _formatDisplayDate(
-    DateTime fecha,
-  ) {
-    final day = fecha.day.toString().padLeft(
-          2,
-          '0',
-        );
-
-    final month = fecha.month.toString().padLeft(
-          2,
-          '0',
-        );
-
-    return '$day/$month/${fecha.year}';
   }
 }

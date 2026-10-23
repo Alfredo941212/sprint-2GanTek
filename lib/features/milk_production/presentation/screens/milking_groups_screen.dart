@@ -5,7 +5,6 @@ import '../../data/repositories/milking_group_repository.dart';
 import '../../data/repositories/milking_session_repository.dart';
 import '../../data/models/milking_session.dart';
 import 'milking_history_screen.dart';
-import 'package:flutter/foundation.dart';
 
 class MilkingGroupsScreen extends StatefulWidget {
   const MilkingGroupsScreen({
@@ -361,6 +360,105 @@ class _MilkingGroupsScreenState extends State<MilkingGroupsScreen> {
     }
   }
 
+//***********MÉTODO DE ELIMINAR GRUPO */
+  Future<void> _deleteGroup({
+    required int groupId,
+    required String groupName,
+  }) async {
+    final int cattleCount = _cattleCountByGroup[groupId] ?? 0;
+
+    // No permitir eliminar si tiene ganado
+    if (cattleCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se puede eliminar el grupo porque tiene ganado asignado.',
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    // Confirmación
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text(
+            'Eliminar grupo',
+          ),
+          content: Text(
+            '¿Deseas eliminar "$groupName"?\n\n'
+            'Esta acción no se puede deshacer.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text(
+                'Cancelar',
+              ),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text(
+                'Eliminar',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await _repository.deleteGroup(
+        groupId: groupId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      // Recargar los grupos después de eliminar
+      await _loadGroups();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Grupo eliminado correctamente.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst(
+                  'Exception: ',
+                  '',
+                ),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -601,9 +699,22 @@ class _MilkingGroupsScreenState extends State<MilkingGroupsScreen> {
                         'Finalizar',
                       ),
                     )
-                  : const Icon(
-                      Icons.chevron_right,
-                    ),
+                  : (cattleCount == 0 && session == null)
+                      ? IconButton(
+                          tooltip: 'Eliminar grupo',
+                          icon: const Icon(
+                            Icons.delete_outline,
+                          ),
+                          onPressed: () {
+                            _deleteGroup(
+                              groupId: group.id!,
+                              groupName: group.name,
+                            );
+                          },
+                        )
+                      : const Icon(
+                          Icons.chevron_right,
+                        ),
               onTap: () async {
                 await Navigator.push(
                   context,

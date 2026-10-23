@@ -267,6 +267,120 @@ class MilkingGroupRepository {
       return localId;
     }
   }
+// =========================================================
+// ELIMINAR GRUPO
+// =========================================================
+
+  Future<void> deleteGroup({
+    required int groupId,
+  }) async {
+    final database = await _databaseHelper.database;
+    final int userId = _requireUserId();
+
+    // 1. Buscar el grupo local
+    final groupRows = await database.query(
+      DatabaseHelper.milkingGroupsTable,
+      columns: [
+        'id',
+        'server_id',
+        'name',
+      ],
+      where: '''
+      id = ?
+      AND user_id = ?
+    ''',
+      whereArgs: [
+        groupId,
+        userId,
+      ],
+      limit: 1,
+    );
+
+    if (groupRows.isEmpty) {
+      throw Exception('El grupo seleccionado no existe.');
+    }
+
+    // 2. Verificar que no tenga ganado asignado
+    final cattleCount = await getCattleCount(groupId);
+
+    if (cattleCount > 0) {
+      throw Exception(
+        'No se puede eliminar el grupo porque tiene ganado asignado.',
+      );
+    }
+
+    final int? serverId = (groupRows.first['server_id'] as num?)?.toInt();
+
+    // =========================================================
+    // 3. SI YA EXISTE EN LARAVEL, ELIMINAR PRIMERO EN SERVIDOR
+    // =========================================================
+
+    if (serverId != null) {
+      final response = await ApiClient.instance.delete(
+        '/grupos-ordenio/$serverId',
+      );
+
+      debugPrint(
+        'ELIMINAR GRUPO API STATUS: ${response.statusCode}',
+      );
+
+      debugPrint(
+        'ELIMINAR GRUPO API BODY: ${response.body}',
+      );
+
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        throw Exception(
+          'No se pudo eliminar el grupo. ${response.body}',
+        );
+      }
+    }
+
+    // =========================================================
+    // 4. ELIMINAR LOCALMENTE
+    // =========================================================
+
+    // Si el grupo estaba sincronizado con Laravel,
+// lo dejamos como inactivo localmente para conservar historial.
+    if (serverId != null) {
+      await database.update(
+        DatabaseHelper.milkingGroupsTable,
+        {
+          'status': 'Inactivo',
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: '''
+      id = ?
+      AND user_id = ?
+    ''',
+        whereArgs: [
+          groupId,
+          userId,
+        ],
+      );
+
+      debugPrint(
+        'GRUPO LOCAL $groupId MARCADO COMO INACTIVO',
+      );
+    } else {
+      // Si nunca llegó al servidor y está vacío,
+      // se puede eliminar completamente.
+      await database.delete(
+        DatabaseHelper.milkingGroupsTable,
+        where: '''
+      id = ?
+      AND user_id = ?
+    ''',
+        whereArgs: [
+          groupId,
+          userId,
+        ],
+      );
+
+      debugPrint(
+        'GRUPO LOCAL $groupId ELIMINADO COMPLETAMENTE',
+      );
+    }
+  }
 
   Future<int?> _getGroupServerId(
     int localGroupId,

@@ -180,4 +180,21 @@ class TaskRepository {
       'Código: ${response.statusCode}',
     );
   }
+
+  Future<void> deleteTask(
+    int taskId,
+  ) async {
+    final response = await _apiClient.delete(
+      '/tareas/$taskId',
+    );
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return;
+    }
+
+    throw Exception(
+      'No se pudo eliminar la tarea. '
+      'Código: ${response.statusCode}',
+    );
+  }
 }
