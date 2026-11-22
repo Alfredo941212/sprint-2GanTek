@@ -27,6 +27,7 @@ import '../../../vaccines/presentation/screens/vaccine_alerts_screen.dart';
 
 import '../../../ia/presentation/screens/ia_analysis_screen.dart';
 import '../../../agenda/presentation/screens/agenda_screen.dart';
+import '../../../ia/presentation/screens/ai_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -291,7 +292,14 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) {
       return;
     }
+    if (selected == 'ai_chat') {
+      _open(
+        context,
+        const AiChatScreen(),
+      );
 
+      return;
+    }
     if (selected == 'profile') {
       _open(
         context,
@@ -674,6 +682,25 @@ class _HomeScreenState extends State<HomeScreen> {
       body: RefreshIndicator(
         onRefresh: _loadDashboard,
         child: _buildBody(),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'asistente_gantek',
+        tooltip: 'Asistente GanTek',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const AiChatScreen(),
+            ),
+          );
+        },
+        backgroundColor: const Color(0xFF0F5C38),
+        foregroundColor: Colors.white,
+        child: const Icon(
+          Icons.smart_toy_outlined,
+          size: 28,
+        ),
       ),
     );
   }
