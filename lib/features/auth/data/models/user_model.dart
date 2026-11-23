@@ -5,6 +5,7 @@ class UserModel {
   final String phone;
   final String passwordHash;
   final String role;
+  final String avatar;
   final DateTime createdAt;
 
   const UserModel({
@@ -14,6 +15,7 @@ class UserModel {
     required this.phone,
     required this.passwordHash,
     required this.role,
+    this.avatar = '',
     required this.createdAt,
   });
 
@@ -25,6 +27,7 @@ class UserModel {
       'phone': phone,
       'password_hash': passwordHash,
       'role': role,
+      'avatar': avatar,
       'created_at': createdAt.toIso8601String(),
     };
   }
@@ -37,7 +40,10 @@ class UserModel {
       phone: map['phone'] as String? ?? '',
       passwordHash: map['password_hash'] as String,
       role: map['role'] as String? ?? 'ganadero',
-      createdAt: DateTime.parse(map['created_at'] as String),
+      avatar: map['avatar'] as String? ?? '',
+      createdAt: DateTime.parse(
+        map['created_at'] as String,
+      ),
     );
   }
 
@@ -48,6 +54,7 @@ class UserModel {
     String? phone,
     String? passwordHash,
     String? role,
+    String? avatar,
     DateTime? createdAt,
   }) {
     return UserModel(
@@ -57,6 +64,7 @@ class UserModel {
       phone: phone ?? this.phone,
       passwordHash: passwordHash ?? this.passwordHash,
       role: role ?? this.role,
+      avatar: avatar ?? this.avatar,
       createdAt: createdAt ?? this.createdAt,
     );
   }
